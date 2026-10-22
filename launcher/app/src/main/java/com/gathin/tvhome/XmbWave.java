@@ -18,16 +18,18 @@ import javax.microedition.khronos.opengles.GL10;
  * {@link XmbSpline}, lit by a fresnel term) and drifting sparkles. A port of spline.js and particles.js from
  * PlayStation-3-XMB, the renderer KittiwanaNotify's admin uses, at the same calm "subtle" level that admin runs at.
  * Changed for the TV: the height texture is R16F, which GLES 3.0 filters without OES_texture_float_linear (the
- * Mi Box's Mali-G31 has no such extension, and an unfilterable R32F texture would flatten the wave); the mesh is
- * finer and the gradient dithered for the full 1080-line surface; the sparkle size follows the surface height.
+ * Mi Box's Mali-G31 has no such extension, and an unfilterable R32F texture would flatten the wave); the gradient
+ * is dithered for the full 1080-line surface; the sparkle size follows the surface height.
  *
  * PlayStation-3-XMB, MIT License, Copyright (c) 2025 Mart (https://github.com/linkev/PlayStation-3-XMB); the full
  * notice is in {@link XmbSpline}.
  */
 final class XmbWave implements GLSurfaceView.Renderer {
     private static final String TAG = "TvHome.XmbWave";
-    // A finer mesh than the browser's 100x100: at the full 1080 lines its facets would show along the bright edge.
-    private static final int GRID = 160;
+    // The browser's 100x100. Every row of the mesh lands on the same band of the screen (that stacking is what draws
+    // the wave's many fine lines), so each extra row is another full layer of blended pixels: at 1080 lines on the
+    // Mi Box's Mali-G31 a frame took about 17 ms with 100 rows and 22 ms with 160, which started dropping frames.
+    private static final int GRID = 100;
     private static final int TEX_W = 256, TEX_H = 64;
     private static final int PARTICLES = 1500;
 
@@ -50,7 +52,8 @@ final class XmbWave implements GLSurfaceView.Renderer {
             + "  float g = u * u * (3.0 - 2.0 * u);\n"
             // A dark gradient over 1080 lines has fewer 8-bit steps than lines and shows bands; half a step of
             // noise per pixel hides them.
-            + "  float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;\n"
+            // Interleaved gradient noise: no sine per pixel, which over two million pixels a frame a small GPU feels.
+            + "  float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;\n"
             + "  oColor = vec4(mix(uColorStart, uColorEnd, g) + n / 255.0, 1.0);\n"
             + "}\n";
     private static final String WAVE_VS = "#version 300 es\n"

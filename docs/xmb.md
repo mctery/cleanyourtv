@@ -65,8 +65,9 @@ programmes mastered near full scale.
 
 ## Cost
 
-On the Mi Box S, about 15% of one CPU core while the XMB is on screen: the wave is drawn at 30 frames a second
-at the screen's resolution (up to 1080 lines, 4x multisampled), its height map recalculated 15 times a second.
+On the Mi Box S, about 18% of one CPU core while the XMB is on screen, and about 17 ms of each 33 ms frame on
+its Mali-G31: the wave is drawn at 30 frames a second at the screen's resolution (up to 1080 lines, 4x
+multisampled), its height map recalculated 15 times a second.
 Nothing runs while an app, the screensaver or the assistant is in front.
 
 With `restore_key_services` on (and the install script's `RESTORE_KEY_SERVICES=1`), the XMB puts the remote's
