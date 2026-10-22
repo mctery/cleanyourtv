@@ -161,10 +161,6 @@
     <string name="xmb_sounds_off">Menu sounds: off</string>
     <string name="xmb_sounds_detail">Press OK to switch</string>
     <string name="xmb_sounds_missing">No sound files on this TV</string>
-    <string name="xmb_classic_home">Classic Home</string>
-    <string name="xmb_classic_home_detail">Make the tile grid Home again. Its Settings menu (hold OK) brings the XMB back.</string>
-    <!-- In the tile grid's Settings menu: makes the XMB cross-bar Home. -->
-    <string name="xmb_home_switch">XMB Home</string>
     <string name="xmb_connected">Connected (%1$s)</string>
     <string name="xmb_not_connected">Not connected</string>
     <string name="xmb_private_dns">Private DNS</string>

@@ -3,9 +3,11 @@ package com.gathin.tvhome;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
@@ -53,9 +55,8 @@ import java.util.Map;
  * the menu fading out after 45 s idle while the wave keeps flowing.
  *
  * Keys: left/right change category, up/down move in it, OK opens, hold OK (or Menu) for options, Home when Home is
- * already in front goes back to Video. Becomes Home from the tile grid's Settings menu (hold OK on Settings, "XMB
- * Home") or with {@code am start -n com.gathin.tvhome/.XmbActivity -a com.gathin.tvhome.action.XMB_HOME}; its own
- * "Classic Home" item gives Home back to the grid ({@link #setXmbHome}).
+ * already in front goes back to Video. On this branch it is the launcher's only Home (the XmbHome alias; the tile
+ * grid, MainActivity, is switched off in the manifest).
  *
  * Everything is laid out in a 1920x1080 coordinate space and scaled to the screen ({@link #px}).
  */
@@ -75,10 +76,6 @@ public class XmbActivity extends Activity {
     private static final float META_X = AX + 152;
     private static final long IDLE_MS = 45_000;
     private static final int INK = 0xF0FFFFFF, INK_DIM = 0xADFFFFFF, INK_FAINT = 0x85FFFFFF;
-    /** Starting the XMB with this action makes it Home (enables the XmbHome alias). */
-    static final String ACTION_XMB_HOME = "com.gathin.tvhome.action.XMB_HOME";
-    /** And this one makes the tile grid Home again (for scripts: the shell cannot switch our components itself). */
-    static final String ACTION_CLASSIC_HOME = "com.gathin.tvhome.action.CLASSIC_HOME";
 
     private float s;
     private Config cfg;
@@ -133,17 +130,11 @@ public class XmbActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Started only to switch Home: switch, hand over to whatever Home is now, and close. Staying open would leave
-        // a second XMB (this one, started by component) behind the one Home starts through the XmbHome alias.
-        String action = getIntent() != null ? getIntent().getAction() : null;
-        if (ACTION_XMB_HOME.equals(action) || ACTION_CLASSIC_HOME.equals(action)) {
-            switchHome(ACTION_XMB_HOME.equals(action));
-            return;
-        }
         cfg = Config.load(this);
         // restore_key_services: after a force stop, put the remote's accessibility helpers back, as the tile grid
-        // does when it starts (ServiceRepair; while the XMB is Home the grid is switched off and never starts).
+        // does when it starts (ServiceRepair; on this branch the grid is switched off and never starts).
         if (cfg.restoreKeyServices) ServiceRepair.restore(this);
+        resetHomeSwitch();
         reducedMotion = cfg.reducedMotion || !cfg.animations;
         if (reducedMotion) animMs = 0;
         sounds = new XmbSounds(this);
@@ -191,6 +182,22 @@ public class XmbActivity extends Activity {
         return am != null ? am.getDeviceConfigurationInfo().reqGlEsVersion : 0;
     }
 
+    /**
+     * Earlier builds of this branch switched Home between the grid and the XMB at run time. Android keeps such a
+     * switch through updates and only the app may change it (the adb shell cannot), so hand both back to the
+     * manifest. Nothing changes here, but a later build with the grid as Home would otherwise find the grid off.
+     */
+    private void resetHomeSwitch() {
+        PackageManager pm = getPackageManager();
+        for (ComponentName c : new ComponentName[]{new ComponentName(this, MainActivity.class),
+                new ComponentName(this, "com.gathin.tvhome.XmbHome")}) {
+            if (pm.getComponentEnabledSetting(c) != PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+                pm.setComponentEnabledSetting(c, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+                        PackageManager.DONT_KILL_APP);
+            }
+        }
+    }
+
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -221,7 +228,6 @@ public class XmbActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        if (sounds == null) return;   // only here to switch Home (switchHome)
         stopped = false;
         dirty = true;   // last-opened times and the network line change while an app is in front
     }
@@ -229,7 +235,6 @@ public class XmbActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (sounds == null) return;
         resumed = true;
         updateAccent();
         if (dirty) reload();
@@ -247,10 +252,6 @@ public class XmbActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (sounds == null) {
-            super.onPause();
-            return;
-        }
         resumed = false;
         closeOptions();
         handler.removeCallbacksAndMessages(null);
@@ -261,7 +262,7 @@ public class XmbActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (sounds == null || waveView == null) return;
+        if (waveView == null) return;
         // The assistant or another window over Home: the wave would keep drawing 30 frames a second under it.
         if (!hasFocus) {
             Choreographer.getInstance().removeFrameCallback(waveTick);
@@ -279,71 +280,15 @@ public class XmbActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (sounds != null) {   // null when started only to switch Home back to the grid
-            unregisterReceiver(packageReceiver);
-            unregisterReceiver(dreamReceiver);
-            sounds.release();
-        }
+        unregisterReceiver(packageReceiver);
+        unregisterReceiver(dreamReceiver);
+        sounds.release();
         super.onDestroy();
-    }
-
-    /**
-     * Makes the XMB Home (the XmbHome alias on, the tile grid's MainActivity off), or the grid again. Exactly one of the
-     * two answers HOME at a time: with both, Android has no saved choice between two equal activities of one package
-     * and shows its chooser, and only the shell or the chooser itself can save one. The one coming in is switched on
-     * before the other goes off, so something always answers HOME. The grid's settings stay as they were.
-     */
-    static void setXmbHome(Context ctx, boolean on) {
-        android.content.pm.PackageManager pm = ctx.getPackageManager();
-        android.content.ComponentName xmb = new android.content.ComponentName(ctx, "com.gathin.tvhome.XmbHome");
-        android.content.ComponentName grid = new android.content.ComponentName(ctx, MainActivity.class);
-        int enabled = android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
-        int disabled = android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-        int keep = android.content.pm.PackageManager.DONT_KILL_APP;
-        pm.setComponentEnabledSetting(on ? xmb : grid, enabled, keep);
-        pm.setComponentEnabledSetting(on ? grid : xmb, disabled, keep);
-    }
-
-    /**
-     * The XMB or the tile grid becomes Home and comes to the front; this instance closes. Switching the alias changes
-     * the set of Home activities, and Android settles the new Home a moment later: a HOME intent sent before that
-     * shows its chooser. So wait (up to 3 s) until HOME resolves to the one we chose, then send it.
-     */
-    private void switchHome(boolean xmb) {
-        setXmbHome(this, xmb);
-        String want = xmb ? "com.gathin.tvhome.XmbHome" : MainActivity.class.getName();
-        Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        final int[] tries = {0};
-        Runnable attempt = new Runnable() {
-            @Override
-            public void run() {
-                android.content.pm.ResolveInfo ri = getPackageManager().resolveActivity(home,
-                        android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
-                boolean settled = ri != null && ri.activityInfo != null && want.equals(ri.activityInfo.name);
-                if (!settled && ++tries[0] < 30) {
-                    handler.postDelayed(this, 100);
-                    return;
-                }
-                // Unrestricted on purpose: a HOME intent limited to this package resolves to a different set of
-                // activities than the saved Home preference, and Android then drops that preference.
-                try {
-                    startActivity(home);
-                } catch (RuntimeException ignored) {
-                }
-                finish();
-            }
-        };
-        handler.post(attempt);
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (intent != null && ACTION_CLASSIC_HOME.equals(intent.getAction())) {
-            switchHome(false);
-            return;
-        }
         // Home pressed while Home is already in front: back to Video, first item. From an app, keep the place.
         if (!stopped && intent != null && intent.hasCategory(Intent.CATEGORY_HOME)) {
             closeOptions();
@@ -931,10 +876,6 @@ public class XmbActivity extends Activity {
             reload();
             return;
         }
-        if (XmbCatalog.ACTION_CLASSIC_HOME.equals(item.action)) {
-            switchHome(false);
-            return;
-        }
         open(item);
     }
 
@@ -1090,7 +1031,6 @@ public class XmbActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (sounds == null) return true;   // only here to switch Home, for a moment: nothing to act on
         if (event.getAction() == KeyEvent.ACTION_UP && isOk(event.getKeyCode())
                 && options.getVisibility() == View.VISIBLE && !okLongPressed
                 && (event.getFlags() & KeyEvent.FLAG_CANCELED) == 0 && optionIdx < optionActions.size()) {

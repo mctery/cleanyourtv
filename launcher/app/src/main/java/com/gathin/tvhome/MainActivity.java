@@ -2854,8 +2854,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (moduleCards) addSettingsMenuRow(rows, popup, R.string.module_cards, this::showModuleCards);
         if (dockRow) addSettingsMenuRow(rows, popup, R.string.dock_edit, this::startDockEdit);
         addSettingsMenuRow(rows, popup, R.string.reorder, this::toggleReorder);
-        addSettingsMenuRow(rows, popup, R.string.xmb_home_switch, () -> startActivity(new Intent(this, XmbActivity.class)
-                .setAction(XmbActivity.ACTION_XMB_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
         popup.setWidth(Math.max((int) (200 * density), panel.getMeasuredWidth()));
         // Hebrew puts Settings at the left of the header: grow the menu inward from it.

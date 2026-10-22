@@ -73,13 +73,12 @@
         android:allowBackup="false"
         android:localeConfig="@xml/locales_config">
 
-        <!-- The XMB cross-bar home. Home is the XmbHome alias, off unless chosen: XmbActivity switches it on (and the
-             tile grid's MainActivity off) when started with com.gathin.tvhome.action.XMB_HOME, and back from its
-             "Classic Home" item or com.gathin.tvhome.action.CLASSIC_HOME; see XmbActivity.setXmbHome. Its own task
-             affinity keeps it out of the grid's task. -->
+        <!-- Home on this branch is the XMB cross-bar alone: XmbActivity, through the XmbHome alias. The tile grid
+             (MainActivity, below) stays in the code so upstream changes keep merging, but is switched off: with two
+             HOME activities in one package Android shows its chooser, and the grid is not wanted. -->
         <activity
             android:name=".XmbActivity"
-            android:exported="true"
+            android:exported="false"
             android:launchMode="singleTask"
             android:taskAffinity="com.gathin.tvhome.xmb"
             android:stateNotNeeded="true"
@@ -90,7 +89,6 @@
         <activity-alias
             android:name=".XmbHome"
             android:targetActivity=".XmbActivity"
-            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -99,8 +97,10 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- The tile grid: off on this branch (the XMB above is Home). -->
         <activity
             android:name=".MainActivity"
+            android:enabled="false"
             android:exported="true"
             android:launchMode="singleTask"
             android:stateNotNeeded="true"

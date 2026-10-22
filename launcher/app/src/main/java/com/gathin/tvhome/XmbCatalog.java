@@ -123,7 +123,6 @@ final class XmbCatalog {
 
     /** Built-in actions run by XmbActivity. */
     static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds";
-    static final String ACTION_CLASSIC_HOME = "classic_home";
 
     private XmbCatalog() {
     }
@@ -270,9 +269,6 @@ final class XmbCatalog {
                 ctx.getString(soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), null,
                 ctx.getDrawable(soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off), true, null, null,
                 ACTION_TOGGLE_SOUNDS));
-        settings.add(new Item("sys:classic", ctx.getString(R.string.xmb_classic_home),
-                ctx.getString(R.string.xmb_classic_home_detail), null, ctx.getDrawable(R.drawable.ic_xmb_grid_view), true,
-                null, null, ACTION_CLASSIC_HOME));
 
         addNetwork(ctx, pm, settingsPkg, byCat.get(NETWORK));
 

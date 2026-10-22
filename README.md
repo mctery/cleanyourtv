@@ -466,7 +466,7 @@ The **TV** needs Android 8.0 (API 26) or newer: `minSdk` is a compile-time floor
 | **Tile menu** | Optional (`tile_menu`): hold OK on a tile for Move, Remove from Home and App info. Off, holding OK opens App info |
 | **Module cards** | Any TV app can offer its own tile; you approve each one once. See [`docs/modules.md`](docs/modules.md) |
 | **Add-ons** | Optional apps that plug in as module cards, kept in [`addons/`](addons/) and never built into the launcher |
-| **XMB home** | Optional: a PlayStation 3 style cross-bar instead of the tile grid, over the PS3 wave in the month's colour. Hold OK on Settings and choose XMB Home. See [`docs/xmb.md`](docs/xmb.md) |
+| **XMB home** | On this branch, Home is a PlayStation 3 style cross-bar over the PS3 wave in the month's colour, and the tile grid is switched off. See [`docs/xmb.md`](docs/xmb.md) |
 | **Clock screensaver** | A drifting clock over the glow, so nothing burns in |
 | **Remote keys** | Keeps the Input, YouTube and gear buttons working after the stock launcher is gone |
 

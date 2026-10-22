@@ -77,9 +77,6 @@
     <string name="xmb_sounds_off">เสียงเมนู: ปิด</string>
     <string name="xmb_sounds_detail">กด OK เพื่อสลับ</string>
     <string name="xmb_sounds_missing">ไม่พบไฟล์เสียงในกล่อง</string>
-    <string name="xmb_classic_home">หน้าหลักแบบเดิม</string>
-    <string name="xmb_classic_home_detail">เปลี่ยนหน้าหลักกลับเป็นแบบไทล์ กลับมา XMB ได้จากเมนูตั้งค่า (กด OK ค้าง)</string>
-    <string name="xmb_home_switch">หน้าหลักแบบ XMB</string>
     <string name="xmb_connected">เชื่อมต่อแล้ว (%1$s)</string>
     <string name="xmb_not_connected">ไม่ได้เชื่อมต่อ</string>
     <string name="xmb_private_dns">DNS ส่วนตัว</string>
