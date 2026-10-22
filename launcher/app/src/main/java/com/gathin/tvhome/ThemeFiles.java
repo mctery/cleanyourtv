@@ -6,6 +6,8 @@ import java.util.regex.Pattern;
 /** The files ThemeProvider may write or delete under Config.dir, by the URI's path segments. */
 final class ThemeFiles {
     static final String WALLPAPERS = "wallpapers";
+    /** The XMB home's menu sounds (XmbSounds): only these names, so nothing else can be written there. */
+    private static final Pattern SOUND = Pattern.compile("(cursor|cursor-down|confirm|cancel|opening)\\.(wav|ogg)");
     /** The names tools/theme.sh accepts for a collection image, and the types WallpaperRotation reads. */
     private static final Pattern IMAGE = Pattern.compile("[A-Za-z0-9_.-]+\\.(jpg|jpeg|png|webp)",
             Pattern.CASE_INSENSITIVE);
@@ -22,6 +24,10 @@ final class ThemeFiles {
         }
         if (segments.size() == 2 && WALLPAPERS.equals(segments.get(0)) && collectionImage(segments.get(1))) {
             return WALLPAPERS + "/" + segments.get(1);
+        }
+        if (segments.size() == 2 && XmbSounds.DIR.equals(segments.get(0)) && segments.get(1) != null
+                && SOUND.matcher(segments.get(1)).matches()) {
+            return XmbSounds.DIR + "/" + segments.get(1);
         }
         return null;
     }

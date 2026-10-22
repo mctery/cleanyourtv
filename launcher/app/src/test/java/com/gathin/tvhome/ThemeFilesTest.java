@@ -37,6 +37,15 @@ public class ThemeFilesTest {
         assertNull(ThemeFiles.path(Arrays.asList("wallpapers", "sub", "dusk.jpg")));
     }
 
+    @Test public void xmbSoundsAreAllowedByName() {
+        assertEquals("sfx/cursor.wav", ThemeFiles.path(Arrays.asList("sfx", "cursor.wav")));
+        assertEquals("sfx/cursor-down.ogg", ThemeFiles.path(Arrays.asList("sfx", "cursor-down.ogg")));
+        assertNull(ThemeFiles.path(Arrays.asList("sfx", "other.wav")));
+        assertNull(ThemeFiles.path(Arrays.asList("sfx", "cursor.mp3")));
+        assertNull(ThemeFiles.path(Arrays.asList("sfx", "../cursor.wav")));
+        assertNull(ThemeFiles.path(Collections.singletonList("cursor.wav")));
+    }
+
     @Test public void onlyTheBareFolderIsTheCollection() {
         assertTrue(ThemeFiles.isCollection(Collections.singletonList("wallpapers")));
         assertFalse(ThemeFiles.isCollection(Arrays.asList("wallpapers", "dusk.jpg")));

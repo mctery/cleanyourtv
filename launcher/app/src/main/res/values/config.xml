@@ -196,4 +196,10 @@
          Live TV window does not keep the screen on (CVTE): there the system screensaver would start in the
          middle of a programme. Can also be set with "home_idle_clock_minutes": 10 in a theme's config.json. -->
     <integer name="home_idle_clock_minutes">0</integer>
+
+    <!-- XMB home (XmbActivity): the category an app goes in when the built-in choice is wrong, as
+         "package=category" with video, music or apps, e.g. com.example.tv=video. Moving an app from the XMB's
+         options menu (hold OK) overrides this. Leave empty to omit. -->
+    <string-array name="xmb_categories" translatable="false">
+    </string-array>
 </resources>

@@ -267,7 +267,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     appLabels.containsKey(pkg) ? appLabels.get(pkg) : String.valueOf(ri.loadLabel(pm)), pkg);
             if (!seen.add(pkg + '\n' + label)) continue;
             Drawable banner = bundledBanner(appBanners.get(pkg));
-            if (banner == null) banner = loadBanner(pm, ri);
+            if (banner == null) banner = loadBanner(ctx, pm, ri);
             // The icon is only drawn (and sampled for the glow) when there is no banner, so a tile with a
             // banner skips loading and decoding it.
             Drawable icon = banner == null ? ri.loadIcon(pm) : null;
@@ -318,7 +318,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return id != 0 ? ctx.getDrawable(id) : null;
     }
 
-    private Drawable loadBanner(PackageManager pm, ResolveInfo ri) {
+    /** The app's 16:9 banner, or null when it has none (also used by the XMB home, XmbCatalog). */
+    static Drawable loadBanner(Context ctx, PackageManager pm, ResolveInfo ri) {
         int id = ri.activityInfo.banner;
         if (id == 0) id = ri.activityInfo.applicationInfo.banner;
         Drawable banner = null;

@@ -107,4 +107,35 @@
     <!-- Cinematic top shelf (cinematic_home): the line under the focused dock app's name; %1$s is when it was
          last opened, e.g. "5 minutes ago" or "yesterday, 9:40 pm". -->
     <string name="last_opened">Last opened %1$s</string>
+    <!-- XMB home (XmbActivity): category names under the cross-bar icons, and the built-in items. -->
+    <string name="xmb_cat_settings">Settings</string>
+    <string name="xmb_cat_video">Video</string>
+    <string name="xmb_cat_music">Music</string>
+    <string name="xmb_cat_apps">Apps</string>
+    <string name="xmb_cat_network">Network</string>
+    <string name="xmb_tv_settings">TV settings</string>
+    <string name="xmb_tv_settings_detail">Picture, sound, accounts and system</string>
+    <string name="xmb_display">Display and sound</string>
+    <string name="xmb_display_detail">Resolution, HDR and audio output</string>
+    <string name="xmb_apps">Apps</string>
+    <string name="xmb_apps_detail">Turn apps on or off</string>
+    <string name="xmb_sounds_on">Menu sounds: on</string>
+    <string name="xmb_sounds_off">Menu sounds: off</string>
+    <string name="xmb_sounds_detail">Press OK to switch</string>
+    <string name="xmb_sounds_missing">No sound files on this TV</string>
+    <string name="xmb_classic_home">Classic Home</string>
+    <string name="xmb_classic_home_detail">Make the tile grid Home again. Its Settings menu (hold OK) brings the XMB back.</string>
+    <!-- In the tile grid's Settings menu: makes the XMB cross-bar Home. -->
+    <string name="xmb_home_switch">XMB Home</string>
+    <string name="xmb_connected">Connected (%1$s)</string>
+    <string name="xmb_not_connected">Not connected</string>
+    <string name="xmb_private_dns">Private DNS</string>
+    <string name="xmb_private_dns_auto">Automatic</string>
+    <!-- %1$s: when the app was last opened from Home, e.g. "5 minutes ago". -->
+    <string name="xmb_last_opened">Last opened: %1$s</string>
+    <string name="xmb_open">Open</string>
+    <string name="xmb_move">Move to another category</string>
+    <string name="xmb_app_info">App info</string>
+    <!-- %1$s: the app, %2$s: the category it went to. -->
+    <string name="xmb_moved">Moved %1$s to %2$s</string>
 </resources>

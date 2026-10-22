@@ -42,6 +42,32 @@
         android:allowBackup="false"
         android:localeConfig="@xml/locales_config">
 
+        <!-- The XMB cross-bar home. Home is the XmbHome alias, off unless chosen: XmbActivity switches it on (and the
+             tile grid's MainActivity off) when started with com.gathin.tvhome.action.XMB_HOME, and back from its
+             "Classic Home" item or com.gathin.tvhome.action.CLASSIC_HOME; see XmbActivity.setXmbHome. Its own task
+             affinity keeps it out of the grid's task. -->
+        <activity
+            android:name=".XmbActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.gathin.tvhome.xmb"
+            android:stateNotNeeded="true"
+            android:excludeFromRecents="true"
+            android:clearTaskOnLaunch="true"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|uiMode"
+            android:screenOrientation="landscape" />
+        <activity-alias
+            android:name=".XmbHome"
+            android:targetActivity=".XmbActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

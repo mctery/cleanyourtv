@@ -57,4 +57,31 @@
         <item quantity="other">%1$d แอป</item>
     </plurals>
     <string name="greeting_with_name">%1$s %2$s</string>
+    <string name="xmb_cat_settings">ตั้งค่า</string>
+    <string name="xmb_cat_video">วิดีโอ</string>
+    <string name="xmb_cat_music">เพลง</string>
+    <string name="xmb_cat_apps">แอป</string>
+    <string name="xmb_cat_network">เครือข่าย</string>
+    <string name="xmb_tv_settings">การตั้งค่าทีวี</string>
+    <string name="xmb_tv_settings_detail">ภาพ เสียง บัญชี และระบบ</string>
+    <string name="xmb_display">การแสดงผลและเสียง</string>
+    <string name="xmb_display_detail">ความละเอียด HDR และเสียงออก</string>
+    <string name="xmb_apps">แอป</string>
+    <string name="xmb_apps_detail">เปิดหรือปิดใช้แอป</string>
+    <string name="xmb_sounds_on">เสียงเมนู: เปิด</string>
+    <string name="xmb_sounds_off">เสียงเมนู: ปิด</string>
+    <string name="xmb_sounds_detail">กด OK เพื่อสลับ</string>
+    <string name="xmb_sounds_missing">ไม่พบไฟล์เสียงในกล่อง</string>
+    <string name="xmb_classic_home">หน้าหลักแบบเดิม</string>
+    <string name="xmb_classic_home_detail">เปลี่ยนหน้าหลักกลับเป็นแบบไทล์ กลับมา XMB ได้จากเมนูตั้งค่า (กด OK ค้าง)</string>
+    <string name="xmb_home_switch">หน้าหลักแบบ XMB</string>
+    <string name="xmb_connected">เชื่อมต่อแล้ว (%1$s)</string>
+    <string name="xmb_not_connected">ไม่ได้เชื่อมต่อ</string>
+    <string name="xmb_private_dns">DNS ส่วนตัว</string>
+    <string name="xmb_private_dns_auto">อัตโนมัติ</string>
+    <string name="xmb_last_opened">เปิดล่าสุด: %1$s</string>
+    <string name="xmb_open">เปิด</string>
+    <string name="xmb_move">ย้ายไปหมวดอื่น</string>
+    <string name="xmb_app_info">ข้อมูลแอป</string>
+    <string name="xmb_moved">ย้าย %1$s ไปที่ %2$s แล้ว</string>
 </resources>
