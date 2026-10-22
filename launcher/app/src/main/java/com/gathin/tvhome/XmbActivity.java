@@ -181,6 +181,9 @@ public class XmbActivity extends Activity {
         pkgs.addAction(Intent.ACTION_PACKAGE_CHANGED);
         pkgs.addDataScheme("package");
         registerReceiver(packageReceiver, pkgs);
+        IntentFilter dreams = new IntentFilter(Intent.ACTION_DREAMING_STARTED);
+        dreams.addAction(Intent.ACTION_DREAMING_STOPPED);
+        registerReceiver(dreamReceiver, dreams);
     }
 
     private int glesVersion() {
@@ -193,6 +196,25 @@ public class XmbActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             dirty = true;
             if (resumed) reload();
+        }
+    };
+
+    /**
+     * The screensaver (Google TV's ambient mode, for one) runs over Home without pausing it, and does not take the
+     * window's focus either, so the wave would go on drawing under it. Stop it for as long as the system dreams.
+     */
+    private boolean dreaming;
+    private final BroadcastReceiver dreamReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            dreaming = Intent.ACTION_DREAMING_STARTED.equals(intent.getAction());
+            if (waveView == null) return;
+            if (dreaming) {
+                Choreographer.getInstance().removeFrameCallback(waveTick);
+            } else if (resumed) {
+                wave.resetClock();
+                startWave();
+            }
         }
     };
 
@@ -240,7 +262,7 @@ public class XmbActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (sounds == null || waveView == null) return;
-        // A screensaver or the assistant over Home: the wave would keep drawing 30 frames a second under it.
+        // The assistant or another window over Home: the wave would keep drawing 30 frames a second under it.
         if (!hasFocus) {
             Choreographer.getInstance().removeFrameCallback(waveTick);
         } else if (resumed) {
@@ -259,6 +281,7 @@ public class XmbActivity extends Activity {
     protected void onDestroy() {
         if (sounds != null) {   // null when started only to switch Home back to the grid
             unregisterReceiver(packageReceiver);
+            unregisterReceiver(dreamReceiver);
             sounds.release();
         }
         super.onDestroy();
@@ -347,7 +370,7 @@ public class XmbActivity extends Activity {
     private final Choreographer.FrameCallback waveTick = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
-            if (!resumed || waveView == null) return;
+            if (!resumed || waveView == null || dreaming) return;
             // 30 frames a second is smooth for a slow wave and halves the GPU's work.
             if ((frame++ & 1) == 0) waveView.requestRender();
             Choreographer.getInstance().postFrameCallback(this);
@@ -356,6 +379,7 @@ public class XmbActivity extends Activity {
 
     private void startWave() {
         Choreographer.getInstance().removeFrameCallback(waveTick);
+        if (dreaming) return;
         if (reducedMotion) {
             waveView.requestRender();   // one still frame
             return;
