@@ -59,13 +59,18 @@ tools/tv.py 'content write --uri content://com.gathin.tvhome.theme/sfx/cursor.wa
 ```
 
 Larger files (an `opening` cue) go through `tools/b64push.py` instead of `--push`. The XMB reads them when Home
-starts; Settings > Menu sounds switches them off and on.
+starts; Settings > Menu sounds switches them off and on. A quiet 16-bit WAV is brought up to full level before it
+plays (at most 30 dB louder): cues made for a computer's speakers are otherwise hard to hear on a TV, next to
+programmes mastered near full scale.
 
 ## Cost
 
 On the Mi Box S, about 15% of one CPU core while the XMB is on screen: the wave is drawn at 30 frames a second
-into a 720p surface, its height map recalculated 15 times a second. Nothing runs while an app, the screensaver or
-the assistant is in front.
+at the screen's resolution (up to 1080 lines, 4x multisampled), its height map recalculated 15 times a second.
+Nothing runs while an app, the screensaver or the assistant is in front.
+
+With `restore_key_services` on (and the install script's `RESTORE_KEY_SERVICES=1`), the XMB puts the remote's
+key helpers back after a force stop, as the tile grid does.
 
 ## Credits
 

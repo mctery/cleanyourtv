@@ -64,6 +64,9 @@ public class XmbActivity extends Activity {
     private static final float AX = 1920 * 0.24f;          // the cross anchor: centre of the category icon
     private static final float SLOT = 200;                  // category spacing
     private static final float CAT_TOP = 296, CAT_ICON = 110, CAT_LABEL_Y = 124;
+    /** The selected category icon's zoom. Icons are drawn at that size and shrunk when not selected: a vector icon
+     *  is rasterised at its view's size, and scaling the view up after that blurs it. */
+    private static final float CAT_ZOOM = 1.3f, CAT_BOX = CAT_ICON * CAT_ZOOM;
     private static final float COL_TOP = 488;               // the selected item's top edge
     private static final float ABOVE_BOTTOM = 286;          // passed items stack upward from here
     private static final float GONE_Y = 80;                 // passed items fade out above this centre
@@ -138,6 +141,9 @@ public class XmbActivity extends Activity {
             return;
         }
         cfg = Config.load(this);
+        // restore_key_services: after a force stop, put the remote's accessibility helpers back, as the tile grid
+        // does when it starts (ServiceRepair; while the XMB is Home the grid is switched off and never starts).
+        if (cfg.restoreKeyServices) ServiceRepair.restore(this);
         reducedMotion = cfg.reducedMotion || !cfg.animations;
         if (reducedMotion) animMs = 0;
         sounds = new XmbSounds(this);
@@ -155,9 +161,10 @@ public class XmbActivity extends Activity {
             waveView.setEGLContextClientVersion(3);
             waveView.setEGLConfigChooser(new XmbWave.ConfigChooser());   // 4x MSAA where offered: the wave's thin lines
             waveView.setPreserveEGLContextOnPause(true);
-            // A 720p surface, scaled up by the display hardware: the wave is soft, and the Mali-G31 on a Mi Box
-            // keeps its frame time down this way.
-            waveView.getHolder().setFixedSize(1280, 720);
+            // Drawn at the screen's own resolution, up to 1920x1080: a TV whose interface runs at 4K would otherwise
+            // draw four times the pixels for a wave that is soft anyway.
+            int w = getResources().getDisplayMetrics().widthPixels, h = getResources().getDisplayMetrics().heightPixels;
+            if (w > 1920) waveView.getHolder().setFixedSize(1920, Math.round(1920f * h / w));
             waveView.setRenderer(wave);
             waveView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
             root.addView(waveView, new FrameLayout.LayoutParams(-1, -1));
@@ -558,11 +565,15 @@ public class XmbActivity extends Activity {
             v.root = new FrameLayout(this);
             v.root.setClipChildren(false);
             place(catsRow, v.root, i * SLOT, 0, SLOT, 170);
-            v.glow = place(v.root, new ImageView(this), (SLOT - CAT_ICON) / 2 - 24, -24, CAT_ICON + 48, CAT_ICON + 48);
+            // Centred where a CAT_ICON-sized icon would sit, at the selected size (see CAT_ZOOM).
+            float top = (CAT_ICON - CAT_BOX) / 2, glowPad = 24 * CAT_ZOOM;
+            v.glow = place(v.root, new ImageView(this), (SLOT - CAT_BOX) / 2 - glowPad, top - glowPad,
+                    CAT_BOX + 2 * glowPad, CAT_BOX + 2 * glowPad);
             v.glow.setAlpha(0f);
-            v.icon = place(v.root, new ImageView(this), (SLOT - CAT_ICON) / 2, 0, CAT_ICON, CAT_ICON);
+            v.icon = place(v.root, new ImageView(this), (SLOT - CAT_BOX) / 2, top, CAT_BOX, CAT_BOX);
             v.icon.setImageDrawable(c.icon.mutate());
-            v.icon.setPadding(px(13), px(13), px(13), px(13));
+            int pad = px(13 * CAT_ZOOM);
+            v.icon.setPadding(pad, pad, pad, pad);
             v.icon.setImageTintList(android.content.res.ColorStateList.valueOf(INK_FAINT));
             v.icon.setAlpha(0.38f);
             v.label = place(v.root, text(medium, 25, INK), -50, CAT_LABEL_Y, SLOT + 100, -1);
@@ -577,8 +588,8 @@ public class XmbActivity extends Activity {
     private void applyCatGlow(int i) {
         if (i >= cats.size()) return;
         CatView v = catViews.get(i);
-        int size = px(CAT_ICON - 26);
-        v.glow.setImageBitmap(glowOf(cats.get(i).icon, size, px(24) + px(13), withAlpha(accentUi, 0xC0)));
+        int size = px(CAT_BOX - 2 * 13 * CAT_ZOOM);
+        v.glow.setImageBitmap(glowOf(cats.get(i).icon, size, px(37 * CAT_ZOOM), withAlpha(accentUi, 0xC0)));
         v.glow.setScaleType(ImageView.ScaleType.CENTER);
     }
 
@@ -594,8 +605,8 @@ public class XmbActivity extends Activity {
             CatView v = catViews.get(i);
             boolean sel = i == index;
             v.icon.setImageTintList(android.content.res.ColorStateList.valueOf(sel ? Color.WHITE : INK_FAINT));
-            animate(v.icon, sel ? 1f : 0.38f, sel ? 1.3f : 1f, instant);
-            animate(v.glow, sel ? 1f : 0f, sel ? 1.3f : 1f, instant);
+            animate(v.icon, sel ? 1f : 0.38f, sel ? 1f : 1f / CAT_ZOOM, instant);
+            animate(v.glow, sel ? 1f : 0f, sel ? 1f : 1f / CAT_ZOOM, instant);
             animate(v.label, sel ? 1f : 0f, 1f, instant);
         }
         if (changed || instant) buildColumn(!instant);

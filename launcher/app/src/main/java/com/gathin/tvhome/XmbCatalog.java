@@ -7,6 +7,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
@@ -222,6 +224,7 @@ final class XmbCatalog {
                 banner = bundledBanner(ctx, cfg.appBanners.get(pkg));
                 if (banner == null) banner = AppAdapter.loadBanner(ctx, pm, ri);
                 icon = banner == null ? ri.loadIcon(pm) : null;
+                withMipmaps(banner);
                 art = new Art(banner, icon);
                 if (art.complete(banner != null, icon != null)) ART.put(artKey, art);
             }
@@ -279,6 +282,16 @@ final class XmbCatalog {
             if (!items.isEmpty()) out.add(new Category(c, label(ctx, c), ctx.getDrawable(iconRes(c)), items));
         }
         return out;
+    }
+
+    /**
+     * Banners are drawn shrunk (to about half their pixels in the rows under the selection); with mipmaps the GPU
+     * filters them from a level near the drawn size, so their lettering stays clean instead of turning grainy.
+     */
+    private static void withMipmaps(Drawable d) {
+        if (!(d instanceof BitmapDrawable)) return;
+        Bitmap b = ((BitmapDrawable) d).getBitmap();
+        if (b != null) b.setHasMipMap(true);
     }
 
     /** A banner_* drawable bundled with the launcher (config.xml app_banners), as on the tile grid; null for none. */

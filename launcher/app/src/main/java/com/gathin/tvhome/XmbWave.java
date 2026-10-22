@@ -18,18 +18,18 @@ import javax.microedition.khronos.opengles.GL10;
  * {@link XmbSpline}, lit by a fresnel term) and drifting sparkles. A port of spline.js and particles.js from
  * PlayStation-3-XMB, the renderer KittiwanaNotify's admin uses, at the same calm "subtle" level that admin runs at.
  * Changed for the TV: the height texture is R16F, which GLES 3.0 filters without OES_texture_float_linear (the
- * Mi Box's Mali-G31 has no such extension, and an unfilterable R32F texture would flatten the wave), and the sparkle
- * count and size follow the smaller surface the activity renders into.
+ * Mi Box's Mali-G31 has no such extension, and an unfilterable R32F texture would flatten the wave); the mesh is
+ * finer and the gradient dithered for the full 1080-line surface; the sparkle size follows the surface height.
  *
  * PlayStation-3-XMB, MIT License, Copyright (c) 2025 Mart (https://github.com/linkev/PlayStation-3-XMB); the full
  * notice is in {@link XmbSpline}.
  */
 final class XmbWave implements GLSurfaceView.Renderer {
     private static final String TAG = "TvHome.XmbWave";
-    private static final int GRID = 100;
-    // 128 columns (the browser used 256): 28 control points on a smooth B-spline lose nothing, and it halves the work.
-    private static final int TEX_W = 128, TEX_H = 64;
-    private static final int PARTICLES = 800;
+    // A finer mesh than the browser's 100x100: at the full 1080 lines its facets would show along the bright edge.
+    private static final int GRID = 160;
+    private static final int TEX_W = 256, TEX_H = 64;
+    private static final int PARTICLES = 1500;
 
     private static final String BG_VS = "#version 300 es\n"
             + "precision highp float;\n"
@@ -48,7 +48,10 @@ final class XmbWave implements GLSurfaceView.Renderer {
             + "void main() {\n"
             + "  float u = clamp(vUvYDown.y, 0.0, 1.0);\n"
             + "  float g = u * u * (3.0 - 2.0 * u);\n"
-            + "  oColor = vec4(mix(uColorStart, uColorEnd, g), 1.0);\n"
+            // A dark gradient over 1080 lines has fewer 8-bit steps than lines and shows bands; half a step of
+            // noise per pixel hides them.
+            + "  float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;\n"
+            + "  oColor = vec4(mix(uColorStart, uColorEnd, g) + n / 255.0, 1.0);\n"
             + "}\n";
     private static final String WAVE_VS = "#version 300 es\n"
             + "precision highp float;\n"
