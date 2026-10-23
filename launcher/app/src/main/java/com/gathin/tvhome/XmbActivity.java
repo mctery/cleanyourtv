@@ -104,6 +104,12 @@ public class XmbActivity extends Activity {
     private Typeface light, regular, medium, extraLight;
 
     private FrameLayout ui, catsRow, column;
+    /** Black over the wave, faded away when Home first comes up after the box starts. */
+    private View veil;
+    /** The clock with the status row, faded in last by the intro. */
+    private View top;
+    /** The activity was just made (the intro is due) / came back from an app (the return is due). */
+    private boolean introDue = true, returnDue;
     /** The light under the selected row: a pool of the accent colour on a glossy floor, and a thin line of light. */
     private ImageView selBar;
     private TextView clockH, clockColon, clockM, dateView, toast;
@@ -162,6 +168,7 @@ public class XmbActivity extends Activity {
         medium = getResources().getFont(R.font.outfit_medium);
         extraLight = getResources().getFont(R.font.outfit_extralight);
         status = new XmbStatus(this, this::px, extraLight, new Handler(Looper.getMainLooper()));
+        status.setMotion(!reducedMotion);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -179,6 +186,11 @@ public class XmbActivity extends Activity {
             waveView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
             root.addView(waveView, new FrameLayout.LayoutParams(-1, -1));
         }
+        veil = new View(this);
+        veil.setBackgroundColor(Color.BLACK);
+        veil.setAlpha(0f);
+        veil.setVisibility(View.GONE);
+        root.addView(veil, new FrameLayout.LayoutParams(-1, -1));
         ui = new FrameLayout(this);
         ui.setClipChildren(false);
         root.addView(ui, new FrameLayout.LayoutParams(-1, -1));
@@ -249,6 +261,7 @@ public class XmbActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        if (stopped && !introDue) returnDue = true;
         stopped = false;
         dirty = true;   // last-opened times and the network line change while an app is in front
     }
@@ -272,6 +285,10 @@ public class XmbActivity extends Activity {
         openingPlayed = true;
         status.start();
         if (!dreaming) music.resume(jingle ? 7000 : 1200);
+        if (introDue) playIntro(jingle);
+        else if (returnDue) playReturn();
+        else if (pendingAnim != null || (ui.getAlpha() < 1f && !idle) || top.getAlpha() < 1f) settle();
+        introDue = returnDue = false;
     }
 
     @Override
@@ -552,6 +569,7 @@ public class XmbActivity extends Activity {
         clock.addView(dateView, dlp);
         // The status row left of the clock, its icons centred on the digits.
         LinearLayout top = new LinearLayout(this);
+        this.top = top;
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setClipChildren(false);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, px(40));
@@ -702,6 +720,7 @@ public class XmbActivity extends Activity {
 
     private void selectCategory(int index, boolean instant) {
         if (index < 0 || index >= cats.size()) return;
+        nudgeToken++;
         boolean changed = index != cat;
         cat = index;
         selectedCat = cats.get(cat).key;
@@ -918,7 +937,10 @@ public class XmbActivity extends Activity {
         if (cat < 0 || rows.isEmpty()) return;
         int clamped = Math.max(0, Math.min(rows.size() - 1, index));
         int prev = selectedIndex();
-        if (clamped == prev && sound) return;
+        if (clamped == prev && sound) {
+            if (index != clamped) nudgeColumn(index < clamped ? 1 : -1);
+            return;
+        }
         selectedKey.put(cats.get(cat).key, rows.get(clamped).item.key);
         layoutColumn(false);
         announce(rows.get(clamped).item.title);
@@ -945,17 +967,22 @@ public class XmbActivity extends Activity {
         if (adjusting) return adjustKey(keyCode, event);
         if (sideVisible()) return sideKey(keyCode, event);
         if (options.getVisibility() == View.VISIBLE) return optionsKey(keyCode, event);
+        keyRepeat = event.getRepeatCount();
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (cat > 0) {
                     selectCategory(cat - 1, false);
                     sounds.play(XmbSounds.CURSOR);
+                } else {
+                    nudgeCategories(1, event);
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (cat < cats.size() - 1) {
                     selectCategory(cat + 1, false);
                     sounds.play(XmbSounds.CURSOR);
+                } else {
+                    nudgeCategories(-1, event);
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
@@ -1033,13 +1060,185 @@ public class XmbActivity extends Activity {
 
     private void open(XmbCatalog.Item item) {
         if (item.intent == null) return;
+        Row r = rows.isEmpty() ? null : rows.get(Math.min(selectedIndex(), rows.size() - 1));
+        if (animMs == 0 || r == null || r.item != item) {
+            start(item);
+            return;
+        }
+        // As on the PS3: the chosen tile steps forward and brightens, the cross-bar fades, then the app opens.
+        // (A view's animator keeps its start delay for the next animation, so every one here sets its own.)
+        r.thumbBox.animate().scaleX(1.1f).scaleY(1.1f).setStartDelay(0).setDuration(180).setInterpolator(ease).start();
+        r.glow.animate().alpha(1f).scaleX(1.15f).scaleY(1.15f).setStartDelay(0).setDuration(180).start();
+        catsRow.animate().alpha(0f).translationY(px(CAT_TOP - 20)).setStartDelay(0).setDuration(220).start();
+        column.animate().alpha(0f).setStartDelay(60).setDuration(200).start();
+        top.animate().alpha(0f).setStartDelay(0).setDuration(200).start();
+        handler.postDelayed(() -> start(item), 200);
+    }
+
+    // A plain start: an app opened with ActivityOptions.makeScaleUpAnimation left this Home marked translucent on
+    // the Mi Box S (Android 11), so on the way back the app behind stayed visible through the wave's surface.
+    private void start(XmbCatalog.Item item) {
         try {
             startActivity(item.intent);
             if (item.pkg != null) LastOpened.record(this, item.pkg);
         } catch (RuntimeException e) {
+            restoreAfterLaunch();
             showToast(getString(R.string.cant_open, item.title));
         }
     }
+
+    /** Puts back what the launch animation moved, at once (returning plays its own animation over it). */
+    private void restoreAfterLaunch() {
+        catsRow.animate().cancel();
+        catsRow.setAlpha(1f);
+        catsRow.setTranslationY(px(CAT_TOP));   // its place: place() positions by translation
+        column.animate().cancel();
+        column.setAlpha(1f);
+        top.animate().cancel();
+        top.setAlpha(1f);
+        if (!rows.isEmpty()) {
+            Row r = rows.get(Math.min(selectedIndex(), rows.size() - 1));
+            r.glow.setScaleX(1f);
+            r.glow.setScaleY(1f);
+        }
+        layoutColumn(true);
+    }
+
+    // ---- intro and return ----------------------------------------------------------------------------------
+
+    /**
+     * The intro or the return waits, hidden, until the window has finished coming in (on a cold start Android shows
+     * a black placeholder first, and a task switch slides the window in): played earlier, it would be over before
+     * anyone saw it. onEnterAnimationComplete starts it; if that never comes, a fallback does after 900 ms.
+     */
+    private Runnable pendingAnim;
+    private final Runnable runPendingAnim = () -> {
+        Runnable r = pendingAnim;
+        pendingAnim = null;
+        if (r != null) r.run();
+    };
+
+    private void queueAnim(Runnable run) {
+        pendingAnim = run;
+        handler.removeCallbacks(runPendingAnim);
+        handler.postDelayed(runPendingAnim, 900);
+    }
+
+    @Override
+    public void onEnterAnimationComplete() {
+        super.onEnterAnimationComplete();
+        handler.removeCallbacks(runPendingAnim);
+        runPendingAnim.run();
+    }
+
+    /**
+     * Home comes up: the wave rises out of black, the categories come in from the right one after another, the
+     * column settles from below, the clock and the status row last. The long version after the box starts (with
+     * the start-up jingle), a short one when Home was only restarted.
+     */
+    private void playIntro(boolean boot) {
+        if (animMs == 0) return;
+        float k = boot ? 1f : 0.6f;
+        veil.animate().cancel();
+        veil.setAlpha(1f);
+        veil.setVisibility(View.VISIBLE);
+        for (int i = 0; i < catViews.size(); i++) {
+            View v = catViews.get(i).root;
+            v.animate().cancel();
+            v.setAlpha(0f);
+            // Each category sits at its slot by its translation (place() uses setX), so move from there.
+            v.setTranslationX(px(i * SLOT) + px(90));
+        }
+        column.setAlpha(0f);
+        column.setTranslationY(px(40));
+        top.setAlpha(0f);
+        queueAnim(() -> {
+            // Gone once clear: a full-screen view over the wave's surface, even transparent, is still drawn.
+            veil.animate().alpha(0f).setStartDelay(0).setDuration((long) (1600 * k)).setInterpolator(ease)
+                    .withEndAction(() -> veil.setVisibility(View.GONE)).start();
+            for (int i = 0; i < catViews.size(); i++) {
+                catViews.get(i).root.animate().alpha(1f).translationX(px(i * SLOT))
+                        .setStartDelay((long) ((300 + 70 * Math.abs(i - cat)) * k))
+                        .setDuration((long) (520 * k)).setInterpolator(ease).start();
+            }
+            column.animate().alpha(1f).translationY(0f).setStartDelay((long) (650 * k))
+                    .setDuration((long) (600 * k)).setInterpolator(ease).start();
+            top.animate().alpha(1f).setStartDelay((long) (1000 * k)).setDuration((long) (700 * k)).start();
+        });
+    }
+
+    /** Back from an app: the cross-bar fades in, settling from slightly larger, the categories closing in. */
+    private void playReturn() {
+        settle();
+        if (animMs == 0 || idle) return;
+        ui.animate().cancel();
+        ui.setAlpha(0f);
+        ui.setScaleX(1.04f);
+        ui.setScaleY(1.04f);
+        for (int i = 0; i < catViews.size(); i++) {
+            if (i != cat) catViews.get(i).root.setTranslationX(px(i * SLOT) + px(i < cat ? -40 : 40));
+        }
+        queueAnim(() -> {
+            ui.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(0).setDuration(420).setInterpolator(ease)
+                    .start();
+            for (int i = 0; i < catViews.size(); i++) {
+                if (i == cat) continue;
+                catViews.get(i).root.animate().translationX(px(i * SLOT)).setStartDelay(0).setDuration(480)
+                        .setInterpolator(ease).start();
+            }
+        });
+    }
+
+    /** Puts everything the launch, intro or return animations move back where it belongs, at once. */
+    private void settle() {
+        pendingAnim = null;
+        veil.animate().cancel();
+        veil.setAlpha(0f);
+        veil.setVisibility(View.GONE);
+        ui.animate().cancel();
+        if (!idle) ui.setAlpha(1f);
+        ui.setScaleX(1f);
+        ui.setScaleY(1f);
+        for (int i = 0; i < catViews.size(); i++) {
+            View v = catViews.get(i).root;
+            v.animate().cancel();
+            v.setAlpha(1f);
+            v.setTranslationX(px(i * SLOT));
+        }
+        column.setTranslationY(0f);
+        restoreAfterLaunch();
+    }
+
+    /** Counts nudges and real moves: a nudge springs back only if nothing moved the cross-bar meanwhile. */
+    private int nudgeToken;
+
+    /**
+     * At the end of a row or a column, the cross-bar gives a little and springs back, the way a list does at its
+     * end. Once per press: a held key repeats, and nudging again from halfway would leave the bar off its place.
+     * The place it springs back to is computed, never read from the view mid-animation.
+     */
+    private void nudgeCategories(int direction, KeyEvent event) {
+        if (animMs == 0 || event.getRepeatCount() > 0 || cat < 0) return;
+        int token = ++nudgeToken;
+        float home = px(AX - (cat * SLOT + SLOT / 2));
+        catsRow.animate().translationX(home + px(14 * direction)).setStartDelay(0).setDuration(80)
+                .setInterpolator(ease).withEndAction(() -> {
+                    if (token == nudgeToken) {
+                        catsRow.animate().translationX(home).setStartDelay(0).setDuration(180).setInterpolator(ease)
+                                .start();
+                    }
+                }).start();
+    }
+
+    private void nudgeColumn(int direction) {
+        if (animMs == 0 || keyRepeat > 0) return;
+        column.animate().translationY(px(10 * direction)).setStartDelay(0).setDuration(80).setInterpolator(ease)
+                .withEndAction(() -> column.animate().translationY(0f).setStartDelay(0).setDuration(180)
+                        .setInterpolator(ease).start()).start();
+    }
+
+    /** The repeat count of the key being handled, for nudges triggered further down. */
+    private int keyRepeat;
 
     // ---- idle: the menu fades, the wave keeps flowing ----------------------------------------------------------
 
@@ -1139,6 +1338,13 @@ public class XmbActivity extends Activity {
         float centre = COL_TOP + slotH(rows.get(selectedIndex()), true) / 2;
         options.setY(Math.max(px(60), Math.min(px(1080) - options.getMeasuredHeight() - px(40),
                 px(centre) - options.getMeasuredHeight() / 2f)));
+        if (animMs > 0) {
+            // place() put the panel at x 1250 through its translation; slide in to there.
+            options.setAlpha(0f);
+            options.setTranslationX(px(1250 + 30));
+            options.animate().alpha(1f).translationX(px(1250)).setStartDelay(0).setDuration(180).setInterpolator(ease)
+                    .start();
+        }
         handler.removeCallbacks(goIdle);
     }
 
@@ -1299,6 +1505,16 @@ public class XmbActivity extends Activity {
         side.setVisibility(View.VISIBLE);
         dimOtherCategories(true);
         layoutSide(true);
+        if (animMs > 0) {
+            for (int i = 0; i < sideViews.size(); i++) {
+                View e = sideViews.get(i);
+                float to = e.getAlpha();
+                e.setAlpha(0f);
+                e.setTranslationX(px(SIDE_X + 36));   // entries sit at SIDE_X through their translation (setX)
+                e.animate().alpha(to).translationX(px(SIDE_X)).setStartDelay(22L * Math.abs(i - sideIdx))
+                        .setDuration(200).setInterpolator(ease).start();
+            }
+        }
         handler.removeCallbacks(goIdle);
     }
 
@@ -1319,7 +1535,8 @@ public class XmbActivity extends Activity {
                 e.setY(y);
                 e.setAlpha(alpha);
             } else {
-                e.animate().y(y).alpha(alpha).setDuration(160).setInterpolator(ease).start();
+                e.animate().y(y).alpha(alpha).translationX(px(SIDE_X)).setStartDelay(0).setDuration(160)
+                        .setInterpolator(ease).start();
             }
             paintSideEntry((ViewGroup) e, i == sideIdx);
         }

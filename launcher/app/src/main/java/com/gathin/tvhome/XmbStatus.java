@@ -233,38 +233,65 @@ final class XmbStatus {
         row.removeAllViews();
         List<View> warn = new ArrayList<>(), busy = new ArrayList<>(), always = new ArrayList<>();
         int battery = remoteBattery();
-        if (battery >= 0 && battery < LOW_BATTERY) warn.add(warnIcon(R.drawable.ic_xmb_battery_1_bar));
-        if (lowStorage()) warn.add(warnIcon(R.drawable.ic_xmb_hard_drive));
-        if (adbOn()) warn.add(warnIcon(R.drawable.ic_xmb_developer_mode_tv));
-        if (helperDown()) warn.add(warnIcon(R.drawable.ic_xmb_settings_remote));
+        if (battery >= 0 && battery < LOW_BATTERY) warn.add(tag(warnIcon(R.drawable.ic_xmb_battery_1_bar), "battery"));
+        if (lowStorage()) warn.add(tag(warnIcon(R.drawable.ic_xmb_hard_drive), "storage"));
+        if (adbOn()) warn.add(tag(warnIcon(R.drawable.ic_xmb_developer_mode_tv), "adb"));
+        if (helperDown()) warn.add(tag(warnIcon(R.drawable.ic_xmb_settings_remote), "helper"));
 
         int progress = installProgress();
         if (progress >= 0) {
-            busy.add(downloading(progress));
+            busy.add(tag(downloading(progress), "download"));
         } else if (downloadAnim != null) {
             downloadAnim.cancel();
         }
-        if (usbDrive()) busy.add(icon(R.drawable.ic_xmb_usb));
+        if (usbDrive()) busy.add(tag(icon(R.drawable.ic_xmb_usb), "usb"));
         int audio = bluetoothAudio();
-        if (audio != 0) busy.add(icon(audio));
+        if (audio != 0) busy.add(tag(icon(audio), "audio"));
 
         XmbWeather w = XmbWeather.current(act);
-        if (w != null) always.add(pair(icon(XmbWeather.icon(w.code, w.day)), w.temperature + "°"));
+        if (w != null) always.add(tag(pair(icon(XmbWeather.icon(w.code, w.day)), w.temperature + "°"), "weather"));
         int net = network();
-        always.add(net == R.drawable.ic_xmb_wifi_off
-                ? image(bitmap(net, 0x73FFFFFF, 0x26FFFFFF, 0x14FFFFFF)) : icon(net));
-        always.add(image(bitmap(R.drawable.ic_xmb_palette, Color.WHITE, 0x73FFFFFF, (0xF2 << 24) | (accent & 0xFFFFFF))));
+        always.add(tag(net == R.drawable.ic_xmb_wifi_off
+                ? image(bitmap(net, 0x73FFFFFF, 0x26FFFFFF, 0x14FFFFFF)) : icon(net), "network"));
+        always.add(tag(image(bitmap(R.drawable.ic_xmb_palette, Color.WHITE, 0x73FFFFFF, (0xF2 << 24) | (accent & 0xFFFFFF))),
+                "palette"));
 
         boolean first = true;
+        java.util.Set<String> now = new java.util.HashSet<>();
         for (List<View> group : java.util.Arrays.asList(warn, busy, always)) {
             if (group.isEmpty()) continue;
             for (int i = 0; i < group.size(); i++) {
-                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) group.get(i).getLayoutParams();
+                View v = group.get(i);
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
                 if (!first) lp.leftMargin += u.px(i == 0 ? GROUP_GAP : GAP);
-                row.addView(group.get(i), lp);
+                row.addView(v, lp);
                 first = false;
+                String key = (String) v.getTag();
+                now.add(key);
+                // Something new to say glows up instead of popping in.
+                if (!shown.isEmpty() && !shown.contains(key) && animate) {
+                    v.setAlpha(0f);
+                    v.setScaleX(0.7f);
+                    v.setScaleY(0.7f);
+                    v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(420).start();
+                }
             }
         }
+        shown.clear();
+        shown.addAll(now);
+    }
+
+    private final java.util.Set<String> shown = new java.util.HashSet<>();
+    private boolean animate = true;
+
+    private static View tag(View v, String key) {
+        v.setTag(key);
+        return v;
+    }
+
+    /** Animations off (reduced motion): items appear as they are. */
+    void setMotion(boolean on) {
+        animate = on;
     }
 
     /**
