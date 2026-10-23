@@ -310,8 +310,17 @@
     <string name="glow_style" translatable="false">radial</string>
 
     <!-- XMB home (XmbActivity): the category an app goes in when the built-in choice is wrong, as
-         "package=category" with video, music or apps, e.g. com.example.tv=video. Moving an app from the XMB's
-         options menu (hold OK) overrides this. Leave empty to omit. -->
+         "package=category" with video, music, apps or the key of one of xmb_menus, e.g. com.example.tv=video.
+         Moving an app from the XMB's options menu (hold OK) overrides this. Leave empty to omit. -->
     <string-array name="xmb_categories" translatable="false">
     </string-array>
+    <!-- XMB home: categories of your own beside the built-in ones, as "key:label:icon", e.g.
+         games:Games:sports_esports. Keys games, tools, social, sports, news, kids, learn, shopping and photos also
+         collect matching apps by themselves; the icons are listed in XmbMenus.ICONS. Menus added, renamed or
+         removed on the TV (Settings > Menus) win over this. Leave empty to omit. -->
+    <string-array name="xmb_menus" translatable="false">
+    </string-array>
+    <!-- XMB home: the wave's colour, "month" (a colour for each month, the default), month1 to month12 for one of
+         those, or "#RRGGBB". A colour picked on the TV (Settings > Theme colour) wins until this value changes. -->
+    <string name="xmb_color" translatable="false">month</string>
 </resources>

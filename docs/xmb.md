@@ -19,6 +19,10 @@ and between two of its own Android has no saved choice and shows its "Choose Hom
 The grid's on-TV tools (Launcher settings, Edit dock, Reorder, the app library, module cards) go with it.
 The order of the apps is still `dock_apps` from `config.xml` or a theme.
 
+Unlike the main project's launcher, this branch asks for three more permissions, all granted at install:
+`INTERNET` for the weather, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote battery icons, and
+`QUERY_ALL_PACKAGES` to see an app Play Store is still downloading.
+
 ## Keys
 
 | Key | Does |
@@ -31,6 +35,60 @@ The order of the apps is still `dock_apps` from `config.xml` or a theme.
 | Home | From an app: back to where you were. On the XMB: Video, first item |
 
 After 45 seconds without a key the menu fades out and only the wave stays. Any key brings it back.
+
+## Status row
+
+Left of the clock, white icons with a soft glow, no frames. Always there, from the clock leftwards:
+
+| Icon | Shows |
+|---|---|
+| Palette | The theme colour: it glows in the wave's colour |
+| Wi-Fi arcs, LAN | The connection: one, two or three lit arcs for the Wi-Fi strength, the LAN icon on a cable, a struck-out Wi-Fi when there is none |
+| Sky and degrees | The weather now (below) |
+
+Only while there is something to say, further left: a download arrow with its progress while an app installs,
+a USB drive, Bluetooth headphones or a speaker. Leftmost, in amber: the remote's battery under 20%, storage under
+500 MB, ADB still on (USB debugging, which on many boxes also opens ADB on the network), and the remote-button
+helper not running. For the last one Home first tries to fix it itself: 15 seconds after it starts, if the helper
+should run and does not, it turns accessibility off and on once (with `WRITE_SECURE_SETTINGS`, as
+`restore_key_services`), which binds a helper Android still holds as crashed.
+
+The weather comes from [Open-Meteo](https://open-meteo.com/) (no account or key) for the box's own last known
+location, rounded to 0.01 degree (about 1 km) before it is sent. It is read at most every 30 minutes, only while
+Home is on screen, and hidden when the last answer is more than three hours old. The remote's battery is the level
+Android reports for a paired input device or, where it reports none (an LE remote on Android 11, as on the Mi Box
+S), the level Home reads from the remote's own Battery Service: at most every six hours, over a GATT connection of
+its own beside Android's, closed again at once.
+
+## Theme colour
+
+Settings > Theme colour opens a list right of the column: Monthly (a colour for each month, the default), the
+twelve month colours by name, and Custom. The wave follows the selection as you move. Custom opens a picker: Left
+and Right turn the hue, Up and Down the brightness, OK saves, Back cancels. Every colour dims at night like the
+month's. From a computer: `"xmb_color": "#234EBA"` (or `"month"`, `"month1"` to `"month12"`) in `config.xml` or a
+theme; a colour picked on the TV wins until that value changes.
+
+## Menus
+
+Settings > Menus lists the categories: pick one to rename it, change its icon (from 40 Material Symbols), move it
+left or right, or remove it (your own only); Add a menu offers Games, Tools, Social, Sports, News, Kids, Learning,
+Shopping and Photos, or a name typed with the TV's keyboard (or said into the remote). From a computer:
+`"xmb_menus": ["games:Games:sports_esports", "tools:Tools:handyman"]`. Menus changed on the TV win; a menu a theme
+adds later still appears unless it was removed on the TV.
+
+Those preset keys also collect apps by themselves: games takes every app that says it is a game, social, news and
+photos the apps of that Android category, tools the productivity apps, browsers, remote-desktop apps and Play
+Store, and each a few known package names. An app moved with Hold OK, or listed in `xmb_categories`
+(`"com.example.app=tools"`), goes where it was put. A menu of your own with no apps yet shows a line saying how to
+fill it; an empty built-in one is left out.
+
+## Background music
+
+A quiet loop while Home is in front, as on the PlayStation, faded in and out. Settings > Background music
+switches between off, low, medium and high. It never plays over other sound: it does not start while another app
+plays music, and stops when anything else takes the audio focus (the assistant, a cast). None ships with the
+launcher: put a file on the TV as `sfx/bgm.flac` (or `.ogg`, `.mp3`, `.m4a`, `.wav`) the way the sounds below go
+on, and it loops without a gap.
 
 ## What goes where
 
@@ -56,7 +114,7 @@ tools/tv.py --push cursor.wav /data/local/tmp/cursor.wav
 tools/tv.py 'content write --uri content://com.gathin.tvhome.theme/sfx/cursor.wav < /data/local/tmp/cursor.wav; rm /data/local/tmp/cursor.wav'
 ```
 
-Larger files (an `opening` cue) go through `tools/b64push.py` instead of `--push`. The XMB reads them when Home
+Larger files (an `opening` cue, the music) go through `tools/b64push.py` instead of `--push`. The XMB reads them when Home
 starts; Settings > Menu sounds switches them off and on. A quiet 16-bit WAV is brought up to full level before it
 plays (at most 30 dB louder): cues made for a computer's speakers are otherwise hard to hear on a TV, next to
 programmes mastered near full scale.

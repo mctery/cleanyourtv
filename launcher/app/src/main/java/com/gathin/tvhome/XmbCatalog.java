@@ -33,14 +33,15 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * What the XMB home shows: five categories (Settings, Video, Music, Apps, Network) and their items. TV apps go in
- * Video, Music or Apps by {@link #categoryFor}; Settings and Network hold built-in items. Built fresh on every
- * reload; what it keeps is the owner's own moves (SharedPreferences, {@link #PREF_MOVES}) and the decoded app art
- * ({@link #ART}), so coming back to Home does not decode every banner again.
+ * What the XMB home shows: the categories (Settings, Video, Music, Apps, Network and the owner's own, {@link XmbMenus})
+ * and their items. TV apps go in Video, Music, Apps or one of the owner's menus by {@link #categoryFor}; Settings and
+ * Network hold built-in items. Built fresh on every reload; what it keeps is the owner's own moves
+ * (SharedPreferences, {@link #PREF_MOVES}) and the decoded app art ({@link #ART}), so coming back to Home does not
+ * decode every banner again.
  */
 final class XmbCatalog {
     static final String SETTINGS = "settings", VIDEO = "video", MUSIC = "music", APPS = "apps", NETWORK = "network";
-    /** The categories an app can be moved to. */
+    /** The built-in categories an app can be moved to; the owner's own menus come on top. */
     static final List<String> APP_CATEGORIES = Collections.unmodifiableList(Arrays.asList(VIDEO, MUSIC, APPS));
     static final String PREF_MOVES = "xmb_moves";
 
@@ -122,27 +123,52 @@ final class XmbCatalog {
     }
 
     /** Built-in actions run by XmbActivity. */
-    static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds";
+    static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds", ACTION_MUSIC = "music", ACTION_COLOR = "color",
+            ACTION_MENUS = "menus";
+
+    /** What the Settings category says about the XMB's own settings. */
+    static final class SettingsState {
+        boolean soundsAvailable, soundsOn, musicAvailable;
+        int musicLevel;
+        String colorName;
+    }
 
     private XmbCatalog() {
     }
 
-    /**
-     * The category an app goes in: the owner's choice first ("package=category" entries, later ones win), then the
-     * known lists, then the app's own android:appCategory, else Apps.
-     */
+    /** The category for the built-in menus only (no menus of the owner's). */
     static String categoryFor(String pkg, int appCategory, List<String> overrides) {
+        return categoryFor(pkg, appCategory, false, overrides, Collections.emptyList());
+    }
+
+    /**
+     * The category an app goes in: the owner's choice first ("package=category" entries, later ones win, to a menu
+     * that exists), then a preset menu of the owner's that names the package, then the known video and music apps,
+     * then a preset menu that takes the app's own android:appCategory (games, social...), then that category's
+     * built-in match (video, audio), else Apps.
+     */
+    static String categoryFor(String pkg, int appCategory, boolean game, List<String> overrides, List<String> menus) {
         String chosen = null;
         for (String entry : overrides) {
             int eq = entry.indexOf('=');
             if (eq <= 0) continue;
             String cat = entry.substring(eq + 1).trim();
-            if (entry.substring(0, eq).trim().equals(pkg) && APP_CATEGORIES.contains(cat)) chosen = cat;
+            if (entry.substring(0, eq).trim().equals(pkg) && (APP_CATEGORIES.contains(cat) || menus.contains(cat))) {
+                chosen = cat;
+            }
         }
         if (chosen != null) return chosen;
+        for (String m : menus) {
+            XmbMenus.Preset p = XmbMenus.preset(m);
+            if (p != null && p.takesPackage(pkg)) return m;
+        }
         if (VIDEO_PACKAGES.contains(pkg)) return VIDEO;
         for (String prefix : VIDEO_PREFIXES) if (pkg.startsWith(prefix)) return VIDEO;
         if (MUSIC_PACKAGES.contains(pkg)) return MUSIC;
+        for (String m : menus) {
+            XmbMenus.Preset p = XmbMenus.preset(m);
+            if (p != null && p.takesCategory(appCategory, game)) return m;
+        }
         if (appCategory == ApplicationInfo.CATEGORY_VIDEO) return VIDEO;
         if (appCategory == ApplicationInfo.CATEGORY_AUDIO) return MUSIC;
         return APPS;
@@ -176,6 +202,19 @@ final class XmbCatalog {
         }
     }
 
+    /** A menu's label: the owner's, else the built-in one's. */
+    static String label(Context ctx, XmbMenus.Menu m) {
+        return m.label != null ? m.label : m.builtIn() ? label(ctx, m.key) : m.key;
+    }
+
+    /** A menu's icon: the one chosen for it, else the built-in one's, else the preset's, else a star. */
+    static int iconRes(XmbMenus.Menu m) {
+        if (m.icon != null) return XmbMenus.ICONS.get(m.icon);
+        if (m.builtIn()) return iconRes(m.key);
+        XmbMenus.Preset p = XmbMenus.preset(m.key);
+        return p != null ? XmbMenus.ICONS.get(p.icon) : R.drawable.ic_xmb_star;
+    }
+
     private static int iconRes(String category) {
         switch (category) {
             case SETTINGS: return R.drawable.ic_xmb_settings;
@@ -186,11 +225,18 @@ final class XmbCatalog {
         }
     }
 
-    /** Every category with at least one item, in cross-bar order. */
-    static List<Category> load(Context ctx, Config cfg, boolean soundsAvailable, boolean soundsOn) {
+    /**
+     * The categories in cross-bar order: every built-in one with at least one item, and every menu of the owner's,
+     * an empty one with a line saying how to fill it.
+     */
+    static List<Category> load(Context ctx, Config cfg, List<XmbMenus.Menu> menus, SettingsState state) {
         PackageManager pm = ctx.getPackageManager();
         Map<String, List<Item>> byCat = new HashMap<>();
-        for (String c : new String[]{SETTINGS, VIDEO, MUSIC, APPS, NETWORK}) byCat.put(c, new ArrayList<>());
+        List<String> appMenus = new ArrayList<>();
+        for (XmbMenus.Menu m : menus) {
+            byCat.put(m.key, new ArrayList<>());
+            if (m.holdsApps() && !m.builtIn()) appMenus.add(m.key);
+        }
 
         List<String> overrides = new ArrayList<>(cfg.xmbCategories);
         overrides.addAll(moves(ctx));
@@ -239,13 +285,16 @@ final class XmbCatalog {
                 if (pm.resolveActivity(byAction, 0) != null) launch = byAction;
             }
             Item item = new Item(component.flattenToShortString(), label, detail, banner, icon, false, pkg, launch, null);
-            int appCategory = ri.activityInfo.applicationInfo != null ? ri.activityInfo.applicationInfo.category : -1;
-            byCat.get(categoryFor(pkg, appCategory, overrides)).add(item);
+            int appCategory = ai != null ? ai.category : -1;
+            @SuppressWarnings("deprecation")
+            boolean game = ai != null && (ai.flags & ApplicationInfo.FLAG_IS_GAME) != 0;
+            byCat.get(categoryFor(pkg, appCategory, game, overrides, appMenus)).add(item);
         }
         ART.keySet().retainAll(liveArt);
         // Same order as the tile grid: the owner's saved order, then dock_apps, then by name.
-        for (String c : APP_CATEGORIES) {
-            Collections.sort(byCat.get(c), (a, b) -> {
+        for (XmbMenus.Menu m : menus) {
+            if (!m.holdsApps()) continue;
+            Collections.sort(byCat.get(m.key), (a, b) -> {
                 int saved = Order.compare(ranks, a.key, b.key);
                 if (saved != 0) return saved;
                 int fa = cfg.dockApps.indexOf(a.pkg), fb = cfg.dockApps.indexOf(b.pkg);
@@ -265,17 +314,30 @@ final class XmbCatalog {
                 R.drawable.ic_xmb_tv, settingsIntent(pm, settingsPkg, Settings.ACTION_DISPLAY_SETTINGS, Settings.ACTION_SETTINGS)));
         settings.add(builtIn(ctx, "sys:apps", R.string.xmb_apps, R.string.xmb_apps_detail,
                 R.drawable.ic_xmb_apps, settingsIntent(pm, settingsPkg, Settings.ACTION_APPLICATION_SETTINGS, Settings.ACTION_SETTINGS)));
-        settings.add(new Item("sys:sounds", ctx.getString(soundsOn ? R.string.xmb_sounds_on : R.string.xmb_sounds_off),
-                ctx.getString(soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), null,
-                ctx.getDrawable(soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off), true, null, null,
+        settings.add(new Item("sys:sounds", ctx.getString(state.soundsOn ? R.string.xmb_sounds_on : R.string.xmb_sounds_off),
+                ctx.getString(state.soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), null,
+                ctx.getDrawable(state.soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off), true, null, null,
                 ACTION_TOGGLE_SOUNDS));
+        int[] music = {R.string.xmb_bgm_off, R.string.xmb_bgm_low, R.string.xmb_bgm_mid, R.string.xmb_bgm_high};
+        settings.add(new Item("sys:music", ctx.getString(music[state.musicAvailable ? state.musicLevel : 0]),
+                ctx.getString(state.musicAvailable ? R.string.xmb_bgm_detail : R.string.xmb_bgm_missing), null,
+                ctx.getDrawable(R.drawable.ic_xmb_library_music), true, null, null, ACTION_MUSIC));
+        settings.add(new Item("sys:color", ctx.getString(R.string.xmb_theme_color), state.colorName, null,
+                ctx.getDrawable(R.drawable.ic_xmb_palette), true, null, null, ACTION_COLOR));
+        settings.add(new Item("sys:menus", ctx.getString(R.string.xmb_menus), ctx.getString(R.string.xmb_menus_detail),
+                null, ctx.getDrawable(R.drawable.ic_xmb_dashboard_customize), true, null, null, ACTION_MENUS));
 
         addNetwork(ctx, pm, settingsPkg, byCat.get(NETWORK));
 
         List<Category> out = new ArrayList<>();
-        for (String c : new String[]{SETTINGS, VIDEO, MUSIC, APPS, NETWORK}) {
-            List<Item> items = byCat.get(c);
-            if (!items.isEmpty()) out.add(new Category(c, label(ctx, c), ctx.getDrawable(iconRes(c)), items));
+        for (XmbMenus.Menu m : menus) {
+            List<Item> items = byCat.get(m.key);
+            int icon = iconRes(m);
+            if (items.isEmpty() && !m.builtIn()) {
+                items.add(new Item("sys:empty", ctx.getString(R.string.xmb_menu_empty),
+                        ctx.getString(R.string.xmb_menu_empty_detail), null, ctx.getDrawable(icon), true, null, null, null));
+            }
+            if (!items.isEmpty()) out.add(new Category(m.key, label(ctx, m), ctx.getDrawable(icon), items));
         }
         return out;
     }

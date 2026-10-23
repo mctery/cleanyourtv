@@ -86,4 +86,54 @@
     <string name="xmb_move">ย้ายไปหมวดอื่น</string>
     <string name="xmb_app_info">ข้อมูลแอป</string>
     <string name="xmb_moved">ย้าย %1$s ไปที่ %2$s แล้ว</string>
+    <string name="xmb_bgm_off">เพลงพื้นหลัง: ปิด</string>
+    <string name="xmb_bgm_low">เพลงพื้นหลัง: เบา</string>
+    <string name="xmb_bgm_mid">เพลงพื้นหลัง: กลาง</string>
+    <string name="xmb_bgm_high">เพลงพื้นหลัง: ดัง</string>
+    <string name="xmb_bgm_detail">กด OK เพื่อเปลี่ยนระดับ</string>
+    <string name="xmb_bgm_missing">ไม่พบไฟล์เพลงในกล่อง</string>
+    <string name="xmb_theme_color">สีธีม</string>
+    <string name="xmb_color_month">ตามเดือน</string>
+    <string name="xmb_color_custom">กำหนดเอง</string>
+    <string-array name="xmb_color_names">
+        <item>ฟ้าอ่อน</item>
+        <item>ฟ้าทะเล</item>
+        <item>เขียว</item>
+        <item>เขียวใบไม้</item>
+        <item>เขียวมะนาว</item>
+        <item>ทอง</item>
+        <item>ส้ม</item>
+        <item>ส้มอิฐ</item>
+        <item>แดง</item>
+        <item>ชมพู</item>
+        <item>ม่วง</item>
+        <item>น้ำเงิน</item>
+    </string-array>
+    <string name="xmb_color_hue">เฉดสี</string>
+    <string name="xmb_color_brightness">ความสว่าง</string>
+    <string name="xmb_color_hint">OK บันทึก    ย้อนกลับ ยกเลิก</string>
+    <string name="xmb_menus">จัดการเมนู</string>
+    <string name="xmb_menus_detail">เพิ่ม เปลี่ยนชื่อ จัดลำดับ และเลือกไอคอน</string>
+    <string name="xmb_menu_add">เพิ่มเมนู</string>
+    <string name="xmb_menu_rename">เปลี่ยนชื่อ</string>
+    <string name="xmb_menu_icon">เปลี่ยนไอคอน</string>
+    <string name="xmb_menu_left">ย้ายไปทางซ้าย</string>
+    <string name="xmb_menu_right">ย้ายไปทางขวา</string>
+    <string name="xmb_menu_delete">ลบเมนูนี้</string>
+    <string name="xmb_menu_type">พิมพ์ชื่อเอง</string>
+    <string name="xmb_menu_name_hint">ชื่อเมนู</string>
+    <string name="xmb_menu_keyboard">พิมพ์ด้วยแป้นพิมพ์บนจอ หรือกดไมค์บนรีโมตแล้วพูด จากนั้นกด OK</string>
+    <string name="xmb_menu_empty">ยังไม่มีแอปในเมนูนี้</string>
+    <string name="xmb_menu_empty_detail">กด OK ค้างที่แอป แล้วเลือก ย้ายไปหมวดอื่น</string>
+    <string name="xmb_menu_added">เพิ่มเมนู %1$s แล้ว</string>
+    <string name="xmb_menu_removed">ลบเมนู %1$s แล้ว</string>
+    <string name="xmb_menu_games">เกม</string>
+    <string name="xmb_menu_tools">เครื่องมือ</string>
+    <string name="xmb_menu_social">สังคม</string>
+    <string name="xmb_menu_sports">กีฬา</string>
+    <string name="xmb_menu_news">ข่าว</string>
+    <string name="xmb_menu_kids">เด็ก</string>
+    <string name="xmb_menu_learn">การเรียนรู้</string>
+    <string name="xmb_menu_shopping">ช้อปปิ้ง</string>
+    <string name="xmb_menu_photos">รูปภาพ</string>
 </resources>

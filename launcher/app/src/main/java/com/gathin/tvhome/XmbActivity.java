@@ -7,6 +7,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BlurMaskFilter;
@@ -33,11 +34,15 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.animation.PathInterpolator;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -46,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Home as a PlayStation-style cross-bar (XMB): categories across, the selected category's items down, the selected
@@ -57,6 +63,10 @@ import java.util.Map;
  * Keys: left/right change category, up/down move in it, OK opens, hold OK (or Menu) for options, Home when Home is
  * already in front goes back to Video. On this branch it is the launcher's only Home (the XmbHome alias; the tile
  * grid, MainActivity, is switched off in the manifest).
+ *
+ * Left of the clock, a status row ({@link XmbStatus}); background music ({@link XmbMusic}); in Settings, the theme
+ * colour (a frameless list right of the column, the wave following the selection, and a hue and brightness picker)
+ * and the menus ({@link XmbMenus}: add, rename, reorder, icons), in the same list.
  *
  * Everything is laid out in a 1920x1080 coordinate space and scaled to the screen ({@link #px}).
  */
@@ -80,6 +90,11 @@ public class XmbActivity extends Activity {
     private float s;
     private Config cfg;
     private XmbSounds sounds;
+    private XmbMusic music;
+    private XmbStatus status;
+    private List<XmbMenus.Menu> menus = Collections.emptyList();
+    /** The colour shown while the owner moves through the theme colours; null otherwise. */
+    private String previewColor;
     private XmbWave wave;
     private GLSurfaceView waveView;
     private boolean reducedMotion;
@@ -138,11 +153,14 @@ public class XmbActivity extends Activity {
         reducedMotion = cfg.reducedMotion || !cfg.animations;
         if (reducedMotion) animMs = 0;
         sounds = new XmbSounds(this);
+        // Their own handlers: onPause clears this activity's, and the music's fade-out must still run after that.
+        music = new XmbMusic(this, new Handler(Looper.getMainLooper()));
         s = getResources().getDisplayMetrics().widthPixels / 1920f;
         light = getResources().getFont(R.font.outfit_light);
         regular = getResources().getFont(R.font.outfit_regular);
         medium = getResources().getFont(R.font.outfit_medium);
         extraLight = getResources().getFont(R.font.outfit_extralight);
+        status = new XmbStatus(this, this::px, extraLight, new Handler(Looper.getMainLooper()));
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -215,6 +233,8 @@ public class XmbActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             dreaming = Intent.ACTION_DREAMING_STARTED.equals(intent.getAction());
+            if (dreaming) music.pause();
+            else if (resumed) music.resume(500);
             if (waveView == null) return;
             if (dreaming) {
                 Choreographer.getInstance().removeFrameCallback(waveTick);
@@ -246,14 +266,21 @@ public class XmbActivity extends Activity {
             startWave();
         }
         wake(false);
-        if (!openingPlayed && SystemClock.elapsedRealtime() < 5 * 60_000) sounds.play(XmbSounds.OPENING);
+        boolean jingle = !openingPlayed && SystemClock.elapsedRealtime() < 5 * 60_000;
+        if (jingle) sounds.play(XmbSounds.OPENING);
         openingPlayed = true;
+        status.start();
+        if (!dreaming) music.resume(jingle ? 7000 : 1200);
     }
 
     @Override
     protected void onPause() {
         resumed = false;
         closeOptions();
+        closeSide(true);
+        closePrompt();
+        status.stop();
+        music.pause();
         handler.removeCallbacksAndMessages(null);
         if (waveView != null) waveView.onPause();
         super.onPause();
@@ -262,6 +289,10 @@ public class XmbActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (resumed && !dreaming) {
+            if (hasFocus) music.resume(300);
+            else if (prompt == null || prompt.getVisibility() != View.VISIBLE) music.pause();
+        }
         if (waveView == null) return;
         // The assistant or another window over Home: the wave would keep drawing 30 frames a second under it.
         if (!hasFocus) {
@@ -283,6 +314,7 @@ public class XmbActivity extends Activity {
         unregisterReceiver(packageReceiver);
         unregisterReceiver(dreamReceiver);
         sounds.release();
+        music.release();
         super.onDestroy();
     }
 
@@ -291,6 +323,8 @@ public class XmbActivity extends Activity {
         super.onNewIntent(intent);
         // Home pressed while Home is already in front: back to Video, first item. From an app, keep the place.
         if (!stopped && intent != null && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            closePrompt();
+            closeSide(false);
             closeOptions();
             selectedKey.remove(XmbCatalog.VIDEO);
             int video = indexOfCat(XmbCatalog.VIDEO);
@@ -302,7 +336,20 @@ public class XmbActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        // Home has nowhere to go back to; Back only closes the options menu.
+        // Home has nowhere to go back to; Back only closes the options menu, the side list or the name prompt.
+        if (prompt != null && prompt.getVisibility() == View.VISIBLE) {
+            Runnable back = promptBack;
+            closePrompt();
+            sounds.play(XmbSounds.CANCEL);
+            if (back != null) back.run();
+            return;
+        }
+        if (sideVisible()) {
+            sounds.play(XmbSounds.CANCEL);
+            if (adjusting) closeAdjust(false);
+            else backSide();
+            return;
+        }
         if (options != null && options.getVisibility() == View.VISIBLE) {
             closeOptions();
             sounds.play(XmbSounds.CANCEL);
@@ -334,15 +381,47 @@ public class XmbActivity extends Activity {
 
     private void updateAccent() {
         Calendar now = Calendar.getInstance();
-        int c = XmbAccent.colorFor(now.get(Calendar.MONTH), now.get(Calendar.HOUR_OF_DAY));
+        String mode = previewColor != null ? previewColor : colorMode();
+        int c = XmbAccent.colorFor(mode, now.get(Calendar.MONTH), now.get(Calendar.HOUR_OF_DAY));
         if (c == accent && rows.size() > 0) return;
         accent = c;
         accentUi = XmbAccent.floor(c);
         if (wave != null) wave.setColor(c);
         if (waveView != null && reducedMotion) waveView.requestRender();
         if (selBar != null) selBar.setBackground(selBarDrawable());
+        status.setAccent(accentUi);
+        // While the owner runs through colours only the wave and the bar follow; the glows catch up on the choice.
+        if (previewColor != null) return;
         for (int i = 0; i < catViews.size(); i++) applyCatGlow(i);
         for (Row r : rows) applyRowGlow(r);
+    }
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences(Config.SETTINGS_NAME, MODE_PRIVATE);
+    }
+
+    private static final String PREF_COLOR = "xmb_color", PREF_COLOR_THEME = "xmb_color_theme";
+
+    /**
+     * The colour setting: the one picked on the TV, else xmb_color from config.xml or the theme. A theme that brings
+     * a different xmb_color than last time is a new choice and replaces the TV's.
+     */
+    private String colorMode() {
+        SharedPreferences p = prefs();
+        String theme = cfg.xmbColor == null ? XmbAccent.MONTH : cfg.xmbColor;
+        if (!theme.equals(p.getString(PREF_COLOR_THEME, null))) {
+            p.edit().putString(PREF_COLOR_THEME, theme).remove(PREF_COLOR).apply();
+        }
+        return p.getString(PREF_COLOR, theme);
+    }
+
+    /** What the colour setting is called: Monthly, one of the twelve names, or Custom and its code. */
+    private String colorName(String mode) {
+        String[] names = getResources().getStringArray(R.array.xmb_color_names);
+        for (int i = 0; i < 12; i++) if (("month" + (i + 1)).equals(mode)) return names[i];
+        int fixed = XmbAccent.fixedColor(mode);
+        if (fixed >= 0) return getString(R.string.xmb_color_custom) + " " + XmbAccent.hex(fixed);
+        return getString(R.string.xmb_color_month);
     }
 
     // ---- layout helpers --------------------------------------------------------------------------------------
@@ -434,10 +513,19 @@ public class XmbActivity extends Activity {
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
         dlp.topMargin = px(8);
         clock.addView(dateView, dlp);
+        // The status row left of the clock, its icons centred on the digits.
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setClipChildren(false);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, px(40));
+        slp.topMargin = px(13);
+        slp.rightMargin = px(46);
+        top.addView(status.row, slp);
+        top.addView(clock, new LinearLayout.LayoutParams(-2, -2));
         FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP);
         clp.rightMargin = px(96);
         clp.topMargin = px(54);
-        ui.addView(clock, clp);
+        ui.addView(top, clp);
 
         catsRow = new FrameLayout(this);
         catsRow.setClipChildren(false);
@@ -457,6 +545,11 @@ public class XmbActivity extends Activity {
         options.setBackground(glass);
         options.setVisibility(View.GONE);
         place(ui, options, 1250, 0, 460, -1);
+
+        side = new FrameLayout(this);
+        side.setClipChildren(false);
+        side.setVisibility(View.GONE);
+        ui.addView(side, new FrameLayout.LayoutParams(-1, -1));
 
         toast = text(regular, 24, INK);
         GradientDrawable pill = new GradientDrawable();
@@ -494,6 +587,7 @@ public class XmbActivity extends Activity {
         Locale locale = Locale.getDefault();
         dateView.setText(DateFormat.format(DateFormat.getBestDateTimePattern(locale, "EEEdMMM"), now));
         updateAccent();
+        status.tick();
         handler.removeCallbacks(tickRunnable);
         if (resumed) handler.postDelayed(tickRunnable, 60_000 - (System.currentTimeMillis() % 60_000) + 50);
     }
@@ -504,7 +598,14 @@ public class XmbActivity extends Activity {
         dirty = false;
         closeOptions();
         if (cat >= 0 && cat < cats.size()) selectedCat = cats.get(cat).key;
-        cats = XmbCatalog.load(this, cfg, sounds.available(), sounds.isOn());
+        menus = XmbMenus.load(this, cfg.xmbMenus);
+        XmbCatalog.SettingsState state = new XmbCatalog.SettingsState();
+        state.soundsAvailable = sounds.available();
+        state.soundsOn = sounds.isOn();
+        state.musicAvailable = music.available();
+        state.musicLevel = music.level();
+        state.colorName = colorName(colorMode());
+        cats = XmbCatalog.load(this, cfg, menus, state);
         buildCategories();
         int target = indexOfCat(selectedCat);
         if (target < 0) target = Math.max(0, indexOfCat(XmbCatalog.VIDEO));
@@ -808,6 +909,9 @@ public class XmbActivity extends Activity {
         }
         wake(false);
         if (keyCode == KeyEvent.KEYCODE_BACK) return super.onKeyDown(keyCode, event);
+        if (prompt != null && prompt.getVisibility() == View.VISIBLE) return super.onKeyDown(keyCode, event);
+        if (adjusting) return adjustKey(keyCode, event);
+        if (sideVisible()) return sideKey(keyCode, event);
         if (options.getVisibility() == View.VISIBLE) return optionsKey(keyCode, event);
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
@@ -845,7 +949,7 @@ public class XmbActivity extends Activity {
 
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        if (isOk(keyCode) && options.getVisibility() != View.VISIBLE && !idle) {
+        if (isOk(keyCode) && options.getVisibility() != View.VISIBLE && !idle && !sideVisible()) {
             okLongPressed = true;
             openOptions();
             return true;
@@ -857,7 +961,7 @@ public class XmbActivity extends Activity {
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (isOk(keyCode)) {
             if (!okLongPressed && !event.isCanceled() && options.getVisibility() != View.VISIBLE && !idle
-                    && (event.getFlags() & KeyEvent.FLAG_TRACKING) != 0) {
+                    && !sideVisible() && (event.getFlags() & KeyEvent.FLAG_TRACKING) != 0) {
                 activate();
             }
             okLongPressed = false;
@@ -876,6 +980,22 @@ public class XmbActivity extends Activity {
             reload();
             return;
         }
+        if (XmbCatalog.ACTION_MUSIC.equals(item.action)) {
+            if (music.available()) {
+                music.cycle();
+                reload();
+            }
+            return;
+        }
+        if (XmbCatalog.ACTION_COLOR.equals(item.action)) {
+            openColors();
+            return;
+        }
+        if (XmbCatalog.ACTION_MENUS.equals(item.action)) {
+            sideStack.clear();
+            openMenus(null);
+            return;
+        }
         open(item);
     }
 
@@ -892,7 +1012,7 @@ public class XmbActivity extends Activity {
     // ---- idle: the menu fades, the wave keeps flowing ----------------------------------------------------------
 
     private final Runnable goIdle = () -> {
-        if (!resumed || options.getVisibility() == View.VISIBLE) return;
+        if (!resumed || options.getVisibility() == View.VISIBLE || pickerOpen()) return;
         idle = true;
         ui.animate().alpha(0f).setDuration(reducedMotion ? 0 : 1200).setInterpolator(ease).start();
     };
@@ -944,12 +1064,12 @@ public class XmbActivity extends Activity {
         List<Integer> icons = new ArrayList<>();
         optionActions.clear();
         String current = cats.get(cat).key;
-        for (String target : XmbCatalog.APP_CATEGORIES) {
-            if (target.equals(current)) continue;
-            String label = XmbCatalog.label(this, target);
+        for (XmbMenus.Menu m : menus) {
+            String target = m.key;
+            if (!m.holdsApps() || target.equals(current)) continue;
+            String label = XmbCatalog.label(this, m);
             labels.add(label);
-            icons.add(target.equals(XmbCatalog.VIDEO) ? R.drawable.ic_xmb_movie
-                    : target.equals(XmbCatalog.MUSIC) ? R.drawable.ic_xmb_music_note : R.drawable.ic_xmb_apps);
+            icons.add(XmbCatalog.iconRes(m));
             optionActions.add(() -> {
                 closeOptions();
                 XmbCatalog.move(this, item.pkg, target);
@@ -1031,6 +1151,20 @@ public class XmbActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (prompt != null && prompt.getVisibility() == View.VISIBLE) return super.dispatchKeyEvent(event);
+        if (event.getAction() == KeyEvent.ACTION_UP && isOk(event.getKeyCode()) && (sideVisible() || adjusting)) {
+            if ((event.getFlags() & KeyEvent.FLAG_CANCELED) == 0 && sideOkDown) {
+                sideOkDown = false;
+                if (adjusting) {
+                    sounds.play(XmbSounds.CONFIRM);
+                    closeAdjust(true);
+                } else if (sideHandler != null && sideIdx < sideTexts.size()) {
+                    sounds.play(XmbSounds.CONFIRM);
+                    sideHandler.picked(sideIdx);
+                }
+            }
+            return true;
+        }
         if (event.getAction() == KeyEvent.ACTION_UP && isOk(event.getKeyCode())
                 && options.getVisibility() == View.VISIBLE && !okLongPressed
                 && (event.getFlags() & KeyEvent.FLAG_CANCELED) == 0 && optionIdx < optionActions.size()) {
@@ -1059,5 +1193,599 @@ public class XmbActivity extends Activity {
         toast.animate().alpha(1f).setDuration(200).start();
         handler.removeCallbacks(hideToast);
         handler.postDelayed(hideToast, 2200);
+    }
+
+    // ---- the side list: a frameless list right of the column (theme colour, menus) ------------------------------
+
+    private static final float SIDE_X = 1400, SIDE_STEP = 64, SIDE_ICON = 44;
+    private static final float[] SIDE_ALPHA = {1f, 0.62f, 0.44f, 0.28f, 0.14f};
+
+    private interface SideHandler {
+        default void moved(int index) {
+        }
+
+        void picked(int index);
+    }
+
+    private FrameLayout side;
+    private final List<String> sideTexts = new ArrayList<>();
+    private final List<View> sideViews = new ArrayList<>();
+    private int sideIdx;
+    private SideHandler sideHandler;
+    /** What Back does on the level on screen: reopen the level above, or null to close the list. */
+    private Runnable sideBackAction;
+    /** OK went down while the list was open: only that press's release picks (not the one that opened it). */
+    private boolean sideOkDown;
+    private final ArrayDeque<Runnable> sideStack = new ArrayDeque<>();
+
+    private boolean sideVisible() {
+        return side != null && side.getVisibility() == View.VISIBLE;
+    }
+
+    /** The side list, the colour picker or the name prompt is open: Home does not fade to the wave meanwhile. */
+    private boolean pickerOpen() {
+        return sideVisible() || adjusting || (prompt != null && prompt.getVisibility() == View.VISIBLE);
+    }
+
+    /** Opens a level: one entry per text (null for an icon alone) with its icon (0 for none). */
+    private void showSide(List<String> texts, List<Integer> icons, int start, SideHandler h, Runnable back) {
+        closeOptions();
+        side.removeAllViews();
+        sideViews.clear();
+        sideTexts.clear();
+        sideTexts.addAll(texts);
+        for (int i = 0; i < texts.size(); i++) {
+            LinearLayout e = new LinearLayout(this);
+            e.setOrientation(LinearLayout.HORIZONTAL);
+            e.setGravity(Gravity.CENTER_VERTICAL);
+            e.setClipChildren(false);
+            String t = texts.get(i);
+            int icon = icons.get(i);
+            if (icon != 0) {
+                ImageView iv = new ImageView(this);
+                iv.setImageDrawable(getDrawable(icon).mutate());
+                float size = t == null ? 56 : SIDE_ICON;
+                e.addView(iv, new LinearLayout.LayoutParams(px(size), px(size)));
+            }
+            if (t != null) {
+                TextView tv = text(regular, 30, INK_DIM);
+                tv.setText(t);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+                if (icon != 0) lp.leftMargin = px(18);
+                e.addView(tv, lp);
+            }
+            side.addView(e, new FrameLayout.LayoutParams(px(1920 - SIDE_X - 40), px(SIDE_STEP)));
+            e.setX(px(SIDE_X));
+            sideViews.add(e);
+        }
+        sideIdx = Math.max(0, Math.min(texts.size() - 1, start));
+        sideHandler = h;
+        sideBackAction = back;
+        sideOkDown = false;
+        side.setVisibility(View.VISIBLE);
+        dimOtherCategories(true);
+        layoutSide(true);
+        handler.removeCallbacks(goIdle);
+    }
+
+    private float sideCentre() {
+        if (rows.isEmpty()) return COL_TOP + 75;
+        return COL_TOP + slotH(rows.get(Math.min(selectedIndex(), rows.size() - 1)), true) / 2;
+    }
+
+    private void layoutSide(boolean instant) {
+        float centre = sideCentre();
+        for (int i = 0; i < sideViews.size(); i++) {
+            View e = sideViews.get(i);
+            int d = Math.abs(i - sideIdx);
+            float alpha = d < SIDE_ALPHA.length ? SIDE_ALPHA[d] : 0f;
+            float y = px(centre + (i - sideIdx) * SIDE_STEP - SIDE_STEP / 2);
+            if (instant || animMs == 0) {
+                e.animate().cancel();
+                e.setY(y);
+                e.setAlpha(alpha);
+            } else {
+                e.animate().y(y).alpha(alpha).setDuration(160).setInterpolator(ease).start();
+            }
+            paintSideEntry((ViewGroup) e, i == sideIdx);
+        }
+    }
+
+    private void paintSideEntry(ViewGroup e, boolean sel) {
+        for (int k = 0; k < e.getChildCount(); k++) {
+            View c = e.getChildAt(k);
+            if (c instanceof TextView) {
+                TextView t = (TextView) c;
+                t.setTypeface(sel ? medium : regular);
+                t.setTextColor(sel ? Color.WHITE : INK_DIM);
+                t.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(sel ? 33 : 30));
+                t.setShadowLayer(sel ? px(10) : 0, 0, 0, sel ? 0x99FFFFFF : 0);
+            } else if (c instanceof ImageView) {
+                ((ImageView) c).setImageTintList(android.content.res.ColorStateList.valueOf(sel ? Color.WHITE : INK_DIM));
+                c.setScaleX(sel ? 1.15f : 1f);
+                c.setScaleY(sel ? 1.15f : 1f);
+            }
+        }
+    }
+
+    /** While the list is open the other categories fade out, so the list stands clear of the cross-bar. */
+    private void dimOtherCategories(boolean dim) {
+        for (int i = 0; i < catViews.size(); i++) {
+            if (i == cat) continue;
+            View icon = catViews.get(i).icon;
+            if (instantAnim()) icon.setAlpha(dim ? 0f : 0.38f);
+            else icon.animate().alpha(dim ? 0f : 0.38f).setDuration(160).start();
+        }
+    }
+
+    private boolean instantAnim() {
+        return animMs == 0;
+    }
+
+    private boolean sideKey(int keyCode, KeyEvent event) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (sideIdx > 0) {
+                    sideIdx--;
+                    layoutSide(false);
+                    sounds.play(XmbSounds.CURSOR);
+                    if (sideHandler != null) sideHandler.moved(sideIdx);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (sideIdx < sideViews.size() - 1) {
+                    sideIdx++;
+                    layoutSide(false);
+                    sounds.play(XmbSounds.CURSOR_DOWN);
+                    if (sideHandler != null) sideHandler.moved(sideIdx);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_MENU:
+                sounds.play(XmbSounds.CANCEL);
+                backSide();
+                return true;
+            default:
+                if (isOk(keyCode) && event.getRepeatCount() == 0) sideOkDown = true;
+                return true;
+        }
+    }
+
+    private void backSide() {
+        Runnable back = sideBackAction;
+        if (back != null) back.run();
+        else closeSide(false);
+    }
+
+    private void closeSide(boolean quiet) {
+        if (adjusting) removeAdjust();
+        if (side == null || side.getVisibility() != View.VISIBLE) return;
+        side.setVisibility(View.GONE);
+        side.removeAllViews();
+        sideViews.clear();
+        sideTexts.clear();
+        sideHandler = null;
+        sideBackAction = null;
+        sideOkDown = false;
+        dimOtherCategories(false);
+        if (previewColor != null) {
+            previewColor = null;
+            accent = -1;
+            updateAccent();
+            if (!quiet) reload();
+        }
+        if (resumed) wake(false);
+    }
+
+    private void setSelectedDetail(String text) {
+        if (rows.isEmpty()) return;
+        Row r = rows.get(Math.min(selectedIndex(), rows.size() - 1));
+        r.detail.setText(text);
+        r.detail.setVisibility(View.VISIBLE);
+    }
+
+    // ---- theme colour ------------------------------------------------------------------------------------------
+
+    private static final String PREF_CUSTOM = "xmb_color_custom";
+    private static final int CUSTOM = 13;
+
+    private void openColors() {
+        String mode = colorMode();
+        String[] names = getResources().getStringArray(R.array.xmb_color_names);
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        texts.add(getString(R.string.xmb_color_month));
+        for (String n : names) texts.add(n);
+        texts.add(getString(R.string.xmb_color_custom));
+        for (int i = 0; i < texts.size(); i++) icons.add(0);
+        int start = 0;
+        for (int i = 1; i <= 12; i++) if (("month" + i).equals(mode)) start = i;
+        if (!mode.startsWith(XmbAccent.MONTH) && XmbAccent.fixedColor(mode) >= 0) start = CUSTOM;
+        String custom = start == CUSTOM ? mode : prefs().getString(PREF_CUSTOM, null);
+        previewColor = mode;
+        showSide(texts, icons, start, new SideHandler() {
+            @Override
+            public void moved(int i) {
+                previewColor = colorAt(i, custom);
+                updateAccent();
+                setSelectedDetail(i == CUSTOM ? colorName(previewColor) : texts.get(i));
+            }
+
+            @Override
+            public void picked(int i) {
+                if (i == CUSTOM) openAdjust(custom);
+                else saveColor(colorAt(i, custom));
+            }
+        }, null);
+    }
+
+    private String colorAt(int i, String custom) {
+        if (i <= 0) return XmbAccent.MONTH;
+        if (i <= 12) return XmbAccent.MONTH + i;
+        if (custom != null) return custom;
+        Calendar now = Calendar.getInstance();
+        return XmbAccent.hex(XmbAccent.base(colorMode(), now.get(Calendar.MONTH)));
+    }
+
+    private void saveColor(String mode) {
+        SharedPreferences.Editor e = prefs().edit().putString(PREF_COLOR, mode);
+        if (!mode.startsWith(XmbAccent.MONTH)) e.putString(PREF_CUSTOM, mode);
+        e.apply();
+        previewColor = null;
+        closeSide(true);
+        accent = -1;
+        updateAccent();
+        reload();
+    }
+
+    // The custom colour: Left and Right turn the hue, Up and Down the brightness, the wave follows.
+    private boolean adjusting;
+    private float adjHue, adjBright;
+    private final List<View> adjViews = new ArrayList<>();
+    private View hueMark, brightMark, brightBar;
+    private TextView adjHex;
+    private static final float BAR_W = 380;
+
+    private void openAdjust(String start) {
+        Calendar now = Calendar.getInstance();
+        int base = start != null ? XmbAccent.fixedColor(start) : -1;
+        if (base < 0) base = XmbAccent.base(colorMode(), now.get(Calendar.MONTH));
+        float[] hb = XmbAccent.hueBrightness(base);
+        adjHue = hb[0];
+        adjBright = hb[1];
+        // The list stays, faded, with the custom entry on top of the pickers.
+        for (int i = 0; i < sideViews.size(); i++) {
+            if (i != sideIdx) sideViews.get(i).animate().alpha(i < sideIdx ? 0.2f : 0f).setDuration(120).start();
+        }
+        float y = sideCentre() + SIDE_STEP / 2 + 10;
+        adjViews.clear();
+        TextView hueLabel = place(ui, text(light, 21, INK_FAINT), SIDE_X, y, 400, -1);
+        hueLabel.setText(R.string.xmb_color_hue);
+        View hueBar = place(ui, new View(this), SIDE_X, y + 40, BAR_W, 4);
+        int[] spectrum = new int[13];
+        for (int i = 0; i < spectrum.length; i++) spectrum[i] = 0xFF000000 | XmbAccent.fromHueBrightness(i / 12f, 0.8f);
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, spectrum);
+        g.setCornerRadius(px(2));
+        hueBar.setBackground(g);
+        hueMark = place(ui, new View(this), SIDE_X, y + 27, 4, 30);
+        TextView brightLabel = place(ui, text(light, 21, INK_FAINT), SIDE_X, y + 72, 400, -1);
+        brightLabel.setText(R.string.xmb_color_brightness);
+        brightBar = place(ui, new View(this), SIDE_X, y + 112, BAR_W, 4);
+        brightMark = place(ui, new View(this), SIDE_X, y + 99, 4, 30);
+        for (View mark : new View[]{hueMark, brightMark}) {
+            GradientDrawable m = new GradientDrawable();
+            m.setColor(Color.WHITE);
+            m.setCornerRadius(px(2));
+            mark.setBackground(m);
+            mark.setElevation(px(4));
+        }
+        adjHex = place(ui, text(light, 21, INK_FAINT), SIDE_X, y + 146, 500, -1);
+        adjViews.add(hueLabel);
+        adjViews.add(hueBar);
+        adjViews.add(hueMark);
+        adjViews.add(brightLabel);
+        adjViews.add(brightBar);
+        adjViews.add(brightMark);
+        adjViews.add(adjHex);
+        adjusting = true;
+        sideOkDown = false;
+        updateAdjust();
+    }
+
+    private void updateAdjust() {
+        int rgb = XmbAccent.fromHueBrightness(adjHue, adjBright);
+        previewColor = XmbAccent.hex(rgb);
+        updateAccent();
+        hueMark.setX(px(SIDE_X + BAR_W * adjHue - 2));
+        brightMark.setX(px(SIDE_X + BAR_W * adjBright - 2));
+        GradientDrawable b = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{
+                0xFF000000 | XmbAccent.fromHueBrightness(adjHue, 0f), 0xFF000000 | XmbAccent.fromHueBrightness(adjHue, 1f)});
+        b.setCornerRadius(px(2));
+        brightBar.setBackground(b);
+        adjHex.setText(previewColor + "      " + getString(R.string.xmb_color_hint));
+        setSelectedDetail(colorName(previewColor));
+    }
+
+    private boolean adjustKey(int keyCode, KeyEvent event) {
+        int r = event.getRepeatCount();
+        float hueStep = r > 8 ? 1f / 40 : 1f / 120;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                adjHue = (adjHue - hueStep + 1f) % 1f;
+                break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                adjHue = (adjHue + hueStep) % 1f;
+                break;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                adjBright = Math.min(1f, adjBright + 0.05f);
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                adjBright = Math.max(0f, adjBright - 0.05f);
+                break;
+            case KeyEvent.KEYCODE_MENU:
+                sounds.play(XmbSounds.CANCEL);
+                closeAdjust(false);
+                return true;
+            default:
+                if (isOk(keyCode) && r == 0) sideOkDown = true;
+                return true;
+        }
+        if (r % 3 == 0) sounds.play(XmbSounds.CURSOR);
+        updateAdjust();
+        return true;
+    }
+
+    private void removeAdjust() {
+        adjusting = false;
+        for (View v : adjViews) ui.removeView(v);
+        adjViews.clear();
+    }
+
+    private void closeAdjust(boolean save) {
+        String picked = previewColor;
+        removeAdjust();
+        if (save && picked != null) {
+            saveColor(picked);
+        } else {
+            closeSide(true);
+            openColors();
+        }
+    }
+
+    // ---- menus: add, rename, reorder, icons --------------------------------------------------------------------
+
+    private static final String ADD = "+add";
+
+    private int menuIndex(String key) {
+        for (int i = 0; i < menus.size(); i++) if (menus.get(i).key.equals(key)) return i;
+        return -1;
+    }
+
+    private void openMenus(String focusKey) {
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        for (XmbMenus.Menu m : menus) {
+            texts.add(XmbCatalog.label(this, m));
+            icons.add(XmbCatalog.iconRes(m));
+        }
+        texts.add(getString(R.string.xmb_menu_add));
+        icons.add(R.drawable.ic_xmb_add);
+        int start = ADD.equals(focusKey) ? menus.size() : Math.max(0, menuIndex(focusKey));
+        showSide(texts, icons, start, i -> {
+            if (i == menus.size()) openPresets();
+            else openMenuActions(menus.get(i).key, 0);
+        }, null);
+    }
+
+    private void openMenuActions(String key, int focus) {
+        int at = menuIndex(key);
+        if (at < 0) {
+            openMenus(null);
+            return;
+        }
+        XmbMenus.Menu m = menus.get(at);
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        texts.add(getString(R.string.xmb_menu_rename));
+        icons.add(R.drawable.ic_xmb_edit);
+        actions.add(() -> askText(getString(R.string.xmb_menu_name_hint), XmbCatalog.label(this, m),
+                name -> {
+                    replaceMenu(key, new XmbMenus.Menu(key, name, m.icon));
+                    openMenuActions(key, 0);
+                }, () -> openMenuActions(key, 0)));
+        texts.add(getString(R.string.xmb_menu_icon));
+        icons.add(R.drawable.ic_xmb_category);
+        actions.add(() -> openIcons(key));
+        if (at > 0) {
+            texts.add(getString(R.string.xmb_menu_left));
+            icons.add(R.drawable.ic_xmb_chevron_left);
+            actions.add(() -> moveMenu(key, -1));
+        }
+        if (at < menus.size() - 1) {
+            texts.add(getString(R.string.xmb_menu_right));
+            icons.add(R.drawable.ic_xmb_chevron_right);
+            actions.add(() -> moveMenu(key, 1));
+        }
+        if (!m.builtIn()) {
+            texts.add(getString(R.string.xmb_menu_delete));
+            icons.add(R.drawable.ic_xmb_delete);
+            actions.add(() -> {
+                String label = XmbCatalog.label(this, m);
+                XmbMenus.remove(this, menus, key);
+                closeSide(true);
+                reload();
+                showToast(getString(R.string.xmb_menu_removed, label));
+                openMenus(null);
+            });
+        }
+        showSide(texts, icons, focus, i -> actions.get(i).run(), () -> openMenus(key));
+    }
+
+    private void replaceMenu(String key, XmbMenus.Menu with) {
+        List<XmbMenus.Menu> next = new ArrayList<>(menus);
+        int at = menuIndex(key);
+        if (at >= 0) next.set(at, with);
+        XmbMenus.save(this, next);
+        closeSide(true);
+        reload();
+    }
+
+    private void moveMenu(String key, int by) {
+        List<XmbMenus.Menu> next = new ArrayList<>(menus);
+        int at = menuIndex(key), to = at + by;
+        if (at < 0 || to < 0 || to >= next.size()) return;
+        next.add(to, next.remove(at));
+        XmbMenus.save(this, next);
+        closeSide(true);
+        reload();
+        // The same move stays selected, so OK again moves it further (at an end, the other move): Rename, Icon,
+        // then Move left when there is room on the left, then Move right.
+        int now = menuIndex(key);
+        boolean hasLeft = now > 0, hasRight = now < menus.size() - 1;
+        openMenuActions(key, by > 0 && hasRight && hasLeft ? 3 : 2);
+    }
+
+    private void openIcons(String key) {
+        int at = menuIndex(key);
+        if (at < 0) return;
+        XmbMenus.Menu m = menus.get(at);
+        List<String> names = new ArrayList<>(XmbMenus.ICONS.keySet());
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        int current = XmbCatalog.iconRes(m), start = 0;
+        for (int i = 0; i < names.size(); i++) {
+            texts.add(null);
+            icons.add(XmbMenus.ICONS.get(names.get(i)));
+            if (icons.get(i) == current) start = i;
+        }
+        showSide(texts, icons, start, i -> {
+            replaceMenu(key, new XmbMenus.Menu(key, m.label, names.get(i)));
+            openMenuActions(key, 1);
+        }, () -> openMenuActions(key, 1));
+    }
+
+    private void openPresets() {
+        List<XmbMenus.Preset> free = new ArrayList<>();
+        for (XmbMenus.Preset p : XmbMenus.PRESETS) if (menuIndex(p.key) < 0) free.add(p);
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        for (XmbMenus.Preset p : free) {
+            texts.add(getString(p.label));
+            icons.add(XmbMenus.ICONS.get(p.icon));
+        }
+        texts.add(getString(R.string.xmb_menu_type));
+        icons.add(R.drawable.ic_xmb_edit);
+        showSide(texts, icons, 0, i -> {
+            if (i < free.size()) {
+                XmbMenus.Preset p = free.get(i);
+                String key = addMenu(p.key, getString(p.label), p.icon);
+                openMenus(key);
+            } else {
+                askText(getString(R.string.xmb_menu_name_hint), "", name -> {
+                    String key = addMenu(null, name, "star");
+                    openIcons(key);
+                }, this::openPresets);
+            }
+        }, () -> openMenus(ADD));
+    }
+
+    /** Adds a menu just before Network and returns its key. */
+    private String addMenu(String wantedKey, String label, String icon) {
+        String key = XmbMenus.newKey(menus, wantedKey);
+        List<XmbMenus.Menu> next = new ArrayList<>(menus);
+        int network = next.size();
+        for (int i = 0; i < next.size(); i++) if (XmbCatalog.NETWORK.equals(next.get(i).key)) network = i;
+        next.add(network, new XmbMenus.Menu(key, label, icon));
+        XmbMenus.save(this, next);
+        closeSide(true);
+        reload();
+        showToast(getString(R.string.xmb_menu_added, label));
+        return key;
+    }
+
+    // ---- a name, typed with the TV's keyboard (or said into the remote) ----------------------------------------
+
+    private FrameLayout prompt;
+    private EditText promptEdit;
+    private TextView promptTitle;
+    private Consumer<String> promptDone;
+    private Runnable promptBack;
+
+    private void askText(String title, String initial, Consumer<String> done, Runnable back) {
+        closeSide(true);
+        if (prompt == null) {
+            prompt = new FrameLayout(this);
+            prompt.setBackgroundColor(0xD9050710);
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            promptTitle = text(medium, 34, INK);
+            box.addView(promptTitle, new LinearLayout.LayoutParams(-1, -2));
+            promptEdit = new EditText(this);
+            promptEdit.setTypeface(regular);
+            promptEdit.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(44));
+            promptEdit.setTextColor(Color.WHITE);
+            promptEdit.setSingleLine(true);
+            promptEdit.setImeOptions(EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+            promptEdit.setBackgroundTintList(android.content.res.ColorStateList.valueOf(withAlpha(accentUi, 0xFF)));
+            promptEdit.setOnEditorActionListener((v, actionId, ev) -> {
+                boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && ev.getAction() == KeyEvent.ACTION_DOWN;
+                if (actionId == EditorInfo.IME_ACTION_DONE || enter) {
+                    finishPrompt();
+                    return true;
+                }
+                return false;
+            });
+            LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(-1, -2);
+            elp.topMargin = px(24);
+            box.addView(promptEdit, elp);
+            TextView hint = text(light, 23, INK_FAINT);
+            hint.setSingleLine(false);
+            hint.setText(R.string.xmb_menu_keyboard);
+            LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
+            hlp.topMargin = px(18);
+            box.addView(hint, hlp);
+            FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(px(900), -2, Gravity.CENTER_HORIZONTAL | Gravity.TOP);
+            blp.topMargin = px(220);
+            prompt.addView(box, blp);
+            ((FrameLayout) ui.getParent()).addView(prompt, new FrameLayout.LayoutParams(-1, -1));
+        }
+        promptDone = done;
+        promptBack = back;
+        promptTitle.setText(title);
+        promptEdit.setText(initial);
+        promptEdit.setSelection(promptEdit.getText().length());
+        prompt.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(goIdle);
+        promptEdit.requestFocus();
+        promptEdit.post(() -> {
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(promptEdit, InputMethodManager.SHOW_IMPLICIT);
+        });
+    }
+
+    private void finishPrompt() {
+        String name = promptEdit.getText().toString().trim();
+        Consumer<String> done = promptDone;
+        Runnable back = promptBack;
+        closePrompt();
+        if (!name.isEmpty() && done != null) {
+            sounds.play(XmbSounds.CONFIRM);
+            done.accept(name.length() > 24 ? name.substring(0, 24) : name);
+        } else if (back != null) {
+            back.run();
+        }
+    }
+
+    private void closePrompt() {
+        if (prompt == null || prompt.getVisibility() != View.VISIBLE) return;
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(promptEdit.getWindowToken(), 0);
+        promptEdit.clearFocus();
+        prompt.setVisibility(View.GONE);
+        promptDone = null;
+        promptBack = null;
+        if (resumed) wake(false);
     }
 }

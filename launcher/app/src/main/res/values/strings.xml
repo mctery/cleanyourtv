@@ -172,4 +172,54 @@
     <string name="xmb_app_info">App info</string>
     <!-- %1$s: the app, %2$s: the category it went to. -->
     <string name="xmb_moved">Moved %1$s to %2$s</string>
+    <string name="xmb_bgm_off">Background music: off</string>
+    <string name="xmb_bgm_low">Background music: low</string>
+    <string name="xmb_bgm_mid">Background music: medium</string>
+    <string name="xmb_bgm_high">Background music: high</string>
+    <string name="xmb_bgm_detail">Press OK to change</string>
+    <string name="xmb_bgm_missing">No music file on this TV</string>
+    <string name="xmb_theme_color">Theme colour</string>
+    <string name="xmb_color_month">Monthly</string>
+    <string name="xmb_color_custom">Custom</string>
+    <string-array name="xmb_color_names">
+        <item>Light blue</item>
+        <item>Sea blue</item>
+        <item>Green</item>
+        <item>Leaf green</item>
+        <item>Lime</item>
+        <item>Gold</item>
+        <item>Orange</item>
+        <item>Brick</item>
+        <item>Red</item>
+        <item>Pink</item>
+        <item>Purple</item>
+        <item>Blue</item>
+    </string-array>
+    <string name="xmb_color_hue">Hue</string>
+    <string name="xmb_color_brightness">Brightness</string>
+    <string name="xmb_color_hint">OK saves    Back cancels</string>
+    <string name="xmb_menus">Menus</string>
+    <string name="xmb_menus_detail">Add, rename, reorder and choose icons</string>
+    <string name="xmb_menu_add">Add a menu</string>
+    <string name="xmb_menu_rename">Rename</string>
+    <string name="xmb_menu_icon">Change the icon</string>
+    <string name="xmb_menu_left">Move left</string>
+    <string name="xmb_menu_right">Move right</string>
+    <string name="xmb_menu_delete">Remove this menu</string>
+    <string name="xmb_menu_type">Type a name</string>
+    <string name="xmb_menu_name_hint">Menu name</string>
+    <string name="xmb_menu_keyboard">Type with the on-screen keyboard or say it with the remote\'s mic, then OK</string>
+    <string name="xmb_menu_empty">Nothing here yet</string>
+    <string name="xmb_menu_empty_detail">Hold OK on an app and choose Move to another category</string>
+    <string name="xmb_menu_added">Added %1$s</string>
+    <string name="xmb_menu_removed">Removed %1$s</string>
+    <string name="xmb_menu_games">Games</string>
+    <string name="xmb_menu_tools">Tools</string>
+    <string name="xmb_menu_social">Social</string>
+    <string name="xmb_menu_sports">Sports</string>
+    <string name="xmb_menu_news">News</string>
+    <string name="xmb_menu_kids">Kids</string>
+    <string name="xmb_menu_learn">Learning</string>
+    <string name="xmb_menu_shopping">Shopping</string>
+    <string name="xmb_menu_photos">Photos</string>
 </resources>

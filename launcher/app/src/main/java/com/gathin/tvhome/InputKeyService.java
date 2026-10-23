@@ -27,10 +27,13 @@ public class InputKeyService extends AccessibilityService {
     private Map<Integer, String> holdAppScancodes = Collections.emptyMap();
     /** restore_key_services was on when the config was read: this helper is noted for ServiceRepair. */
     private boolean repairRecord;
+    /** Bound and taking keys; the XMB's status row warns when it should be and is not. */
+    static volatile boolean running;
 
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        running = true;
         // From config.xml or a theme's config.json; theme.sh rebinds this service after a push.
         Config config = Config.load(this);
         // restore_key_services: note that this helper runs, so Home can put it back after a force stop.
@@ -70,6 +73,7 @@ public class InputKeyService extends AccessibilityService {
     /** Unbound by Android: the user turned the helper off, so Home doesn't put it back (ServiceRepair). */
     @Override
     public boolean onUnbind(Intent intent) {
+        running = false;
         if (repairRecord) ServiceRepair.disconnected(this, getClass());
         return super.onUnbind(intent);
     }

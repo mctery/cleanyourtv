@@ -169,8 +169,12 @@ final class Config {
     final boolean handleViewInputs;
     /** Hold OK on a tile opens a menu (Move, Remove from Home, App info) instead of App info (config.xml / theme tile_menu). */
     final boolean tileMenu;
-    /** XMB home: "package=category" (video, music or apps) for apps it would otherwise put elsewhere (xmb_categories). */
+    /** XMB home: "package=category" (video, music, apps or a menu's key) for apps it would otherwise put elsewhere (xmb_categories). */
     final List<String> xmbCategories;
+    /** XMB home: the owner's own categories, "key:label:icon" (xmb_menus). */
+    final List<String> xmbMenus;
+    /** XMB home: the wave colour, "month", "month1".."month12" or "#RRGGBB" (xmb_color). */
+    final String xmbColor;
 
     private Config(List<String> dockApps, boolean fillDock, List<String> hiddenApps, String liveTvPackage,
                    String liveTvAction, String liveTvInputId, Map<String, String> launchActions, Map<String, String> appLabels,
@@ -184,7 +188,8 @@ final class Config {
                    Festival festival, int[] inputKeycodes, List<String> appKeys, String stockHomeRedirect,
                    List<RaceWeekend.Race> raceCalendar, boolean cinematicHome, boolean ambientGlow, boolean appGlow, int homeIdleClockMinutes,
                    boolean keyFilter, boolean dockGlass, String glowStyle, boolean wallpaperCaptions,
-                   boolean handleViewInputs, boolean tileMenu, List<String> xmbCategories) {
+                   boolean handleViewInputs, boolean tileMenu, List<String> xmbCategories, List<String> xmbMenus,
+                   String xmbColor) {
         this.handleViewInputs = handleViewInputs;
         this.tileMenu = tileMenu;
         this.inputKeycodes = inputKeycodes;
@@ -252,6 +257,8 @@ final class Config {
         this.appGlow = appGlow;
         this.homeIdleClockMinutes = homeIdleClockMinutes;
         this.xmbCategories = Collections.unmodifiableList(xmbCategories);
+        this.xmbMenus = Collections.unmodifiableList(xmbMenus);
+        this.xmbColor = xmbColor;
         this.dockGlass = dockGlass;
         this.glowStyle = glowStyle(glowStyle);
         this.wallpaperCaptions = wallpaperCaptions;
@@ -329,6 +336,8 @@ final class Config {
         boolean dockGlass = res.getBoolean(R.bool.dock_glass);
         String glowStyle = res.getString(R.string.glow_style);
         List<String> xmbCategories = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_categories)));
+        List<String> xmbMenus = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_menus)));
+        String xmbColor = res.getString(R.string.xmb_color);
         boolean applied = false;
 
         File dir = dir(ctx);
@@ -397,6 +406,8 @@ final class Config {
             dockGlass = bool(json, "dock_glass", dockGlass);
             glowStyle = string(json, "glow_style", glowStyle);
             xmbCategories = stringList(json, "xmb_categories", xmbCategories);
+            xmbMenus = stringList(json, "xmb_menus", xmbMenus);
+            xmbColor = string(json, "xmb_color", xmbColor);
         }
         // A theme push or reset invalidates choices made on the TV. On first use, remember the
         // current theme without clearing choices from an older launcher version.
@@ -458,7 +469,8 @@ final class Config {
                 Math.max(0, Math.min(100, skyIntensity)), settingsKeycodes, settingsKeyPanel, restoreKeyServices, wallpaperEnabled, wallpaper,
                 wallpapers, rotationMinutes, wallpaperDim, dockOpacity, wallpaperOrder, applied,
                 festival, inputKeycodes, appKeys, stockHomeRedirect, json == null ? Collections.emptyList() : raceCalendar(json), cinematic, ambientGlow, appGlow,
-                Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu, xmbCategories);
+                Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu, xmbCategories,
+                xmbMenus, xmbColor);
     }
 
     /**

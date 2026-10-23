@@ -6,6 +6,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -21,6 +22,16 @@
     <!-- YaOS (Yandex TV OS): HDMI, AV and the tuner all play in com.yandex.tv.live, whose activities require
          this permission (protection level normal, so it is granted at install). Ignored on other TVs. -->
     <uses-permission android:name="yandex.tv.permission.ACCESS_TV_SOURCE" />
+    <!-- XMB home, this branch only (the main project's launcher has no network access): the weather in the status
+         row, from Open-Meteo (XmbWeather). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- XMB status row: Bluetooth headphones or a speaker, and a paired remote's battery (XmbStatus). Granted at
+         install up to Android 11; on Android 12 and later those two icons simply stay off. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <!-- XMB status row: an app downloading from Play Store, with its progress (PackageInstaller sessions of apps
+         that are not installed yet are only visible with this). -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the
          apps that declare a module card (docs/specs/card.md). -->

@@ -63,6 +63,46 @@ final class ServiceRepair {
         }
     }
 
+    /** The helper should be running: it is on Android's list, or it recorded itself and was not turned off. */
+    static boolean expected(Context context, Class<?> service) {
+        if (prefs(context).contains(service.getName())) return true;
+        String list = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        ComponentName name = new ComponentName(context.getPackageName(), service.getName());
+        if (list == null) return false;
+        for (String entry : list.split(":")) {
+            if (name.equals(ComponentName.unflattenFromString(entry))) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Turns accessibility off and on again, the list kept, so Android binds a helper it still holds as crashed (seen
+     * on the Mi Box S, Android 11, after a force stop: the helper back on the list but never started). Needs
+     * WRITE_SECURE_SETTINGS; false when that was not granted.
+     */
+    static boolean rebind(Context context, android.os.Handler handler) {
+        if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
+                != PackageManager.PERMISSION_GRANTED) return false;
+        restore(context);
+        ContentResolver cr = context.getContentResolver();
+        try {
+            String list = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (list == null || list.isEmpty() || list.equals("null")) return false;
+            Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+            Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+            handler.postDelayed(() -> {
+                try {
+                    Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, list);
+                    Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+                } catch (RuntimeException ignored) {
+                }
+            }, 2000);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }

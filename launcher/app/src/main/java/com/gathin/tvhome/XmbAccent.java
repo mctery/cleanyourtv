@@ -24,8 +24,87 @@ final class XmbAccent {
 
     /** The wave colour, 0xRRGGBB, for a month (0 = January) at an hour of the day. */
     static int colorFor(int month, int hour) {
-        int base = MONTH_COLORS[Math.floorMod(month, 12)];
-        float f = timeFactor(hour);
+        return scaled(MONTH_COLORS[Math.floorMod(month, 12)], timeFactor(hour));
+    }
+
+    /** The same for a colour setting ({@link #base}): the owner's colour, dimmed at night like the month's. */
+    static int colorFor(String mode, int month, int hour) {
+        return scaled(base(mode, month), timeFactor(hour));
+    }
+
+    static final String MONTH = "month";
+
+    /**
+     * The colour a setting names, before the time of day: "month" (or anything unreadable) is this month's colour,
+     * "month1" to "month12" one month's colour for good, "#RRGGBB" the owner's own.
+     */
+    static int base(String mode, int month) {
+        int fixed = fixedColor(mode);
+        return fixed >= 0 ? fixed : MONTH_COLORS[Math.floorMod(month, 12)];
+    }
+
+    /** The colour a setting fixes, or -1 for "month" and anything unreadable. */
+    static int fixedColor(String mode) {
+        if (mode == null) return -1;
+        String m = mode.trim();
+        if (m.length() == 7 && m.charAt(0) == '#') {
+            try {
+                return Integer.parseInt(m.substring(1), 16);
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        if (m.startsWith(MONTH) && m.length() > MONTH.length()) {
+            try {
+                int n = Integer.parseInt(m.substring(MONTH.length()));
+                return n >= 1 && n <= 12 ? MONTH_COLORS[n - 1] : -1;
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    static String hex(int rgb) {
+        return String.format(java.util.Locale.ROOT, "#%06X", rgb & 0xFFFFFF);
+    }
+
+    /** Saturation of a colour made with the picker: as strong as the month colours, never neon. */
+    private static final float PICKED_SATURATION = 0.62f;
+
+    /** A colour from the picker's hue (0..1, round the wheel) and brightness (0..1, dim to full). */
+    static int fromHueBrightness(float hue, float brightness) {
+        float h = (hue - (float) Math.floor(hue)) * 6f;
+        float v = 0.35f + 0.65f * Math.max(0f, Math.min(1f, brightness));
+        float c = v * PICKED_SATURATION, x = c * (1 - Math.abs(h % 2 - 1)), m = v - c;
+        float r, g, b;
+        switch ((int) h) {
+            case 0: r = c; g = x; b = 0; break;
+            case 1: r = x; g = c; b = 0; break;
+            case 2: r = 0; g = c; b = x; break;
+            case 3: r = 0; g = x; b = c; break;
+            case 4: r = x; g = 0; b = c; break;
+            default: r = c; g = 0; b = x; break;
+        }
+        return (Math.round((r + m) * 255) << 16) | (Math.round((g + m) * 255) << 8) | Math.round((b + m) * 255);
+    }
+
+    /** The picker position nearest a colour: {hue, brightness}, so it starts from the colour in use. */
+    static float[] hueBrightness(int rgb) {
+        float r = ((rgb >> 16) & 0xFF) / 255f, g = ((rgb >> 8) & 0xFF) / 255f, b = (rgb & 0xFF) / 255f;
+        float max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b)), d = max - min;
+        float h = 0;
+        if (d > 0) {
+            if (max == r) h = ((g - b) / d) % 6;
+            else if (max == g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h /= 6f;
+            if (h < 0) h += 1;
+        }
+        return new float[]{h, Math.max(0f, Math.min(1f, (max - 0.35f) / 0.65f))};
+    }
+
+    private static int scaled(int base, float f) {
         int r = Math.min(255, Math.round(((base >> 16) & 0xFF) * f));
         int g = Math.min(255, Math.round(((base >> 8) & 0xFF) * f));
         int b = Math.min(255, Math.round((base & 0xFF) * f));

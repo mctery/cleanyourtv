@@ -49,6 +49,10 @@ public class ThemeFilesTest {
         assertEquals("sfx/cursor-down.ogg", ThemeFiles.path(Arrays.asList("sfx", "cursor-down.ogg")));
         assertNull(ThemeFiles.path(Arrays.asList("sfx", "other.wav")));
         assertNull(ThemeFiles.path(Arrays.asList("sfx", "cursor.mp3")));
+        assertEquals("sfx/bgm.flac", ThemeFiles.path(Arrays.asList("sfx", "bgm.flac")));
+        assertEquals("sfx/bgm.mp3", ThemeFiles.path(Arrays.asList("sfx", "bgm.mp3")));
+        assertNull(ThemeFiles.path(Arrays.asList("sfx", "bgm.exe")));
+        assertNull(ThemeFiles.path(Arrays.asList("sfx", "bgm2.flac")));
         assertNull(ThemeFiles.path(Arrays.asList("sfx", "../cursor.wav")));
         assertNull(ThemeFiles.path(Collections.singletonList("cursor.wav")));
     }
