@@ -104,7 +104,8 @@ public class XmbActivity extends Activity {
     private Typeface light, regular, medium, extraLight;
 
     private FrameLayout ui, catsRow, column;
-    private View selBar;
+    /** The light under the selected row: a pool of the accent colour on a glossy floor, and a thin line of light. */
+    private ImageView selBar;
     private TextView clockH, clockColon, clockM, dateView, toast;
     private LinearLayout options;
 
@@ -388,7 +389,7 @@ public class XmbActivity extends Activity {
         accentUi = XmbAccent.floor(c);
         if (wave != null) wave.setColor(c);
         if (waveView != null && reducedMotion) waveView.requestRender();
-        if (selBar != null) selBar.setBackground(selBarDrawable());
+        if (selBar != null) selBar.setImageBitmap(selectionLight());
         status.setAccent(accentUi);
         // While the owner runs through colours only the wave and the bar follow; the glows catch up on the choice.
         if (previewColor != null) return;
@@ -483,11 +484,47 @@ public class XmbActivity extends Activity {
         return out;
     }
 
-    private Drawable selBarDrawable() {
-        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{withAlpha(accentUi, 0x42), withAlpha(accentUi, 0x18), withAlpha(accentUi, 0)});
-        g.setCornerRadius(px(18));
-        return g;
+    // The selection light, in 1920x1080 units: drawn in a box SEL_W x SEL_H whose left edge is SEL_X left of the
+    // anchor, its line SEL_LINE below the box's top, and the box placed so the line runs just under the row.
+    private static final float SEL_X = 330, SEL_W = 1200, SEL_H = 150, SEL_LINE = 62;
+    private Bitmap selLight;
+    private int selLightColor;
+
+    /**
+     * The row stands on a glossy floor: under it a soft pool of the accent colour, wide and flat, and along its foot a
+     * thin line of light, white where the icon is and the accent colour further right, both fading out at the ends.
+     * No box around the row. Made once per accent colour, in software (the blur is not drawn by the GPU).
+     */
+    private Bitmap selectionLight() {
+        if (selLight != null && selLightColor == accentUi) return selLight;
+        int w = px(SEL_W), h = px(SEL_H);
+        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        // The pool: an ellipse 600 x 52 units round a point 480 units in, three units above the line.
+        float cx = px(480), cy = px(SEL_LINE - 3), rx = px(600), ry = px(52);
+        p.setShader(new android.graphics.RadialGradient(cx, cy, rx,
+                new int[]{withAlpha(accentUi, 0x8C), withAlpha(accentUi, 0x2E), withAlpha(accentUi, 0)},
+                new float[]{0f, 0.5f, 0.8f}, android.graphics.Shader.TileMode.CLAMP));
+        c.save();
+        c.scale(1f, ry / rx, cx, cy);
+        c.drawCircle(cx, cy, rx, p);
+        c.restore();
+        // The line: 1000 units long from 110 units in, with a glow of the accent colour round it.
+        float x0 = px(110), x1 = px(1110), y = px(SEL_LINE), t = Math.max(1, px(2));
+        p.setShader(new android.graphics.LinearGradient(x0, 0, x1, 0,
+                new int[]{withAlpha(accentUi, 0), withAlpha(accentUi, 0xCC), withAlpha(accentUi, 0xCC), withAlpha(accentUi, 0)},
+                new float[]{0f, 0.25f, 0.55f, 1f}, android.graphics.Shader.TileMode.CLAMP));
+        p.setMaskFilter(new BlurMaskFilter(px(12), BlurMaskFilter.Blur.NORMAL));
+        c.drawRect(x0, y - t, x1, y + t, p);
+        p.setMaskFilter(null);
+        p.setShader(new android.graphics.LinearGradient(x0, 0, x1, 0,
+                new int[]{0x00FFFFFF, 0x99FFFFFF, withAlpha(accentUi, 0x80), withAlpha(accentUi, 0)},
+                new float[]{0f, 0.25f, 0.55f, 1f}, android.graphics.Shader.TileMode.CLAMP));
+        c.drawRect(x0, y - t / 2f, x1, y + t / 2f, p);
+        selLight = b;
+        selLightColor = accentUi;
+        return b;
     }
 
     // ---- the fixed parts: clock, category row, column, options, toast -----------------------------------------
@@ -717,8 +754,8 @@ public class XmbActivity extends Activity {
             ui.removeView(old);
         }
         rows.clear();
-        selBar = place(column, new View(this), AX - 170, 0, 1180, ROW_H - 10);
-        selBar.setBackground(selBarDrawable());
+        selBar = place(column, new ImageView(this), AX - SEL_X, 0, SEL_W, SEL_H);
+        selBar.setImageBitmap(selectionLight());
         for (XmbCatalog.Item item : cats.get(cat).items) rows.add(buildRow(item));
         layoutColumn(true);
     }
@@ -866,13 +903,8 @@ public class XmbActivity extends Activity {
                 if (!(instant || animMs == 0)) r.detail.animate().alpha(1f).setDuration(animMs).start();
             }
         }
-        float barH = slotH(rows.get(sel), true) - 10;
-        ViewGroup.LayoutParams lp = selBar.getLayoutParams();
-        if (lp.height != px(barH)) {
-            lp.height = px(barH);
-            selBar.setLayoutParams(lp);
-        }
-        float barY = px(centre[sel] - barH / 2);
+        // The line runs 13 units above the foot of the selected slot: under the text, below a tile's lower edge.
+        float barY = px(centre[sel] + slotH(rows.get(sel), true) / 2 - 13 - SEL_LINE);
         if (instant || animMs == 0) {
             selBar.animate().cancel();
             selBar.setTranslationY(barY);
