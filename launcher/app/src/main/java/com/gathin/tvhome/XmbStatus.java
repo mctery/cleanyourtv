@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
+import android.animation.ValueAnimator;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -36,6 +37,8 @@ import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -79,6 +82,10 @@ final class XmbStatus {
     private int accent = 0xD6517A;
     private boolean started, rebindTried, batteryLogged;
     private BluetoothProfile a2dp;
+    /** The download item, kept between refreshes so its animation runs on (refreshes come with every bit of progress). */
+    private View download;
+    private TextView downloadText;
+    private ValueAnimator downloadAnim;
     private ConnectivityManager.NetworkCallback netCallback;
     private PackageInstaller.SessionCallback installCallback;
 
@@ -180,6 +187,7 @@ final class XmbStatus {
         if (!started) return;
         started = false;
         handler.removeCallbacks(refreshRunnable);
+        if (downloadAnim != null) downloadAnim.cancel();
         try {
             act.unregisterReceiver(receiver);
         } catch (RuntimeException ignored) {
@@ -231,7 +239,11 @@ final class XmbStatus {
         if (helperDown()) warn.add(warnIcon(R.drawable.ic_xmb_settings_remote));
 
         int progress = installProgress();
-        if (progress >= 0) busy.add(pair(icon(R.drawable.ic_xmb_download), progress + "%"));
+        if (progress >= 0) {
+            busy.add(downloading(progress));
+        } else if (downloadAnim != null) {
+            downloadAnim.cancel();
+        }
         if (usbDrive()) busy.add(icon(R.drawable.ic_xmb_usb));
         int audio = bluetoothAudio();
         if (audio != 0) busy.add(icon(audio));
@@ -253,6 +265,67 @@ final class XmbStatus {
                 first = false;
             }
         }
+    }
+
+    /**
+     * The download item: the arrow falls into the tray, again and again, while an app downloads; the tray brightens
+     * as it lands. 1.6 seconds a round, only this small view redrawn.
+     */
+    private View downloading(int progress) {
+        if (download == null) {
+            int pad = u.px(PAD), full = u.px(ICON) + 2 * pad, size = u.px(ICON);
+            FrameLayout box = new FrameLayout(act);
+            box.setClipChildren(false);
+            ImageView tray = new ImageView(act);
+            tray.setImageBitmap(bitmap(R.drawable.ic_xmb_download_tray, Color.WHITE, 0x8CFFFFFF, 0x47FFFFFF));
+            ImageView arrow = new ImageView(act);
+            arrow.setImageBitmap(bitmap(R.drawable.ic_xmb_download_arrow, Color.WHITE, 0x8CFFFFFF, 0x47FFFFFF));
+            box.addView(tray, new FrameLayout.LayoutParams(full, full));
+            box.addView(arrow, new FrameLayout.LayoutParams(full, full));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(full, full);
+            lp.setMargins(-pad, -pad, -pad, -pad);
+            box.setLayoutParams(lp);
+            download = pair(box, "");
+            downloadText = (TextView) ((ViewGroup) download).getChildAt(1);
+            downloadAnim = ValueAnimator.ofFloat(0f, 1f);
+            downloadAnim.setDuration(1600);
+            downloadAnim.setRepeatCount(ValueAnimator.INFINITE);
+            downloadAnim.setInterpolator(null);
+            downloadAnim.addUpdateListener(a -> {
+                float t = (float) a.getAnimatedValue();
+                float y, alpha, glow;
+                if (t < 0.55f) {            // falls in from above, slowing as it lands
+                    float k = t / 0.55f, ease = 1 - (1 - k) * (1 - k);
+                    y = -0.45f * size * (1 - ease);
+                    alpha = Math.min(1f, k / 0.35f);
+                    glow = 0f;
+                } else if (t < 0.8f) {      // rests in the tray, which lights up
+                    y = 0f;
+                    alpha = 1f;
+                    glow = 1f - (t - 0.55f) / 0.25f;
+                } else {                    // sinks in and fades
+                    float k = (t - 0.8f) / 0.2f;
+                    y = 0.12f * size * k;
+                    alpha = 1f - k;
+                    glow = 0f;
+                }
+                arrow.setTranslationY(y);
+                arrow.setAlpha(alpha);
+                tray.setAlpha(0.75f + 0.25f * glow);
+            });
+        }
+        downloadText.setText(progress + "%");
+        if (download.getParent() != null) ((ViewGroup) download.getParent()).removeView(download);
+        download.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        if (!downloadAnim.isStarted()) downloadAnim.start();
+        return download;
+    }
+
+    /** The menu faded out to the wave: nothing in the row needs to move meanwhile. */
+    void setAnimating(boolean on) {
+        if (downloadAnim == null || !downloadAnim.isStarted()) return;
+        if (on) downloadAnim.resume();
+        else downloadAnim.pause();
     }
 
     private View icon(int res) {

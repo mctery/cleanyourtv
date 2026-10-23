@@ -1046,6 +1046,7 @@ public class XmbActivity extends Activity {
     private final Runnable goIdle = () -> {
         if (!resumed || options.getVisibility() == View.VISIBLE || pickerOpen()) return;
         idle = true;
+        status.setAnimating(false);
         ui.animate().alpha(0f).setDuration(reducedMotion ? 0 : 1200).setInterpolator(ease).start();
     };
 
@@ -1053,6 +1054,7 @@ public class XmbActivity extends Activity {
         handler.removeCallbacks(goIdle);
         if (idle || fromIdle) {
             idle = false;
+            status.setAnimating(true);
             ui.animate().alpha(1f).setDuration(reducedMotion ? 0 : 2400).setInterpolator(ease).start();
         }
         if (resumed) handler.postDelayed(goIdle, IDLE_MS);
