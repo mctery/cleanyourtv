@@ -50,6 +50,8 @@ final class XmbStatusPrefs {
             new Item("audio", BUSY, AUTO, HIDDEN),
             new Item("temperature", INFO, HIDDEN, AUTO, ALWAYS),
             new Item("weather", INFO, ALWAYS, HIDDEN),
+            new Item("air", INFO, ALWAYS, AUTO, HIDDEN),
+            new Item("speed", INFO, AUTO, ALWAYS, HIDDEN),
             new Item("network", INFO, ALWAYS, HIDDEN),
             new Item("palette", INFO, ALWAYS, HIDDEN)));
 
@@ -157,6 +159,14 @@ final class XmbStatusPrefs {
         int at = o.indexOf(key), to = at + by;
         if (at < 0 || to < 0 || to >= o.size()) return this;
         o.add(to, o.remove(at));
+        return new XmbStatusPrefs(o, modes, preset, keepOnIdle);
+    }
+
+    /** The item moved just past another (before it going up, after it going down), skipping any in between. */
+    XmbStatusPrefs movedPast(String key, String other, int by) {
+        List<String> o = new ArrayList<>(order);
+        if (!o.remove(key) || !o.contains(other)) return this;
+        o.add(o.indexOf(other) + (by > 0 ? 1 : 0), key);
         return new XmbStatusPrefs(o, modes, preset, keepOnIdle);
     }
 

@@ -144,7 +144,8 @@ final class XmbCatalog {
             for (Item i : c.items) {
                 // An app's detail ("last opened ...") changes by the minute and is updated in place; a built-in
                 // item's detail is a setting's value and counts.
-                sb.append(' ').append(i.key).append('|').append(i.title).append('|').append(i.pkg == null ? i.detail : "")
+                boolean live = i.pkg != null || SPEEDTEST.equals(i.key);
+                sb.append(' ').append(i.key).append('|').append(i.title).append('|').append(live ? "" : i.detail)
                         .append('|').append(i.banner != null).append('|').append(i.action).append('\n');
             }
         }
@@ -153,7 +154,9 @@ final class XmbCatalog {
 
     /** Built-in actions run by XmbActivity. */
     static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds", ACTION_MUSIC = "music", ACTION_COLOR = "color",
-            ACTION_MENUS = "menus", ACTION_STATUS = "status", ACTION_DIAG = "diagnostics";
+            ACTION_MENUS = "menus", ACTION_STATUS = "status", ACTION_DIAG = "diagnostics", ACTION_SPEEDTEST = "speedtest";
+    /** The speed test's item: its line is updated in place while it measures, not part of the signature. */
+    static final String SPEEDTEST = "sys:speedtest";
 
     /** What the Settings category says about the XMB's own settings. */
     static final class SettingsState {
@@ -426,7 +429,15 @@ final class XmbCatalog {
         return pm.resolveActivity(pinned, 0) != null ? pinned : null;
     }
 
-    /** The connection (network name and address) and the Private DNS in use. */
+    /** A speed test's result as a line: the speed, the round trip and when, "48 Mb/s, ping 12 ms, 2 minutes ago". */
+    static String speedResult(Context ctx, XmbSpeedTest.Result r) {
+        StringBuilder sb = new StringBuilder(XmbStatus.rate(r.mbps));
+        if (r.pingMs >= 0) sb.append(", ").append(ctx.getString(R.string.xmb_speedtest_ping, r.pingMs));
+        if (r.time > 0) sb.append(", ").append(LastOpened.describe(ctx, r.time));
+        return sb.toString();
+    }
+
+    /** The connection (network name and address), the speed test and the Private DNS in use. */
     private static void addNetwork(Context ctx, PackageManager pm, String settingsPkg, List<Item> out) {
         XmbNet net = XmbNet.read(ctx);
         String title, detail = net.ip != null ? ctx.getString(R.string.xmb_connected, net.ip) : "";
@@ -452,6 +463,11 @@ final class XmbCatalog {
         }
         Intent wifi = settingsIntent(pm, settingsPkg, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS);
         out.add(new Item("sys:network", title, detail, ctx, glyph, wifi, null));
+        XmbSpeedTest.Result last = XmbSpeedTest.last(ctx);
+        String speed = XmbSpeedTest.running() ? ctx.getString(R.string.xmb_speedtest_start)
+                : last != null ? speedResult(ctx, last) : ctx.getString(R.string.xmb_speedtest_never);
+        out.add(new Item(SPEEDTEST, ctx.getString(R.string.xmb_speedtest), speed, ctx, R.drawable.ic_xmb_speed, null,
+                ACTION_SPEEDTEST));
         out.add(new Item("sys:dns", ctx.getString(R.string.xmb_private_dns),
                 net.privateDns != null ? net.privateDns : ctx.getString(R.string.xmb_private_dns_auto), ctx,
                 R.drawable.ic_xmb_dns, wifi, null));

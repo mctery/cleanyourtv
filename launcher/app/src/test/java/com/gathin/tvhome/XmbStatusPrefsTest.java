@@ -69,6 +69,30 @@ public class XmbStatusPrefsTest {
         assertEquals(XmbStatusPrefs.CUSTOM, p.preset);
     }
 
+    @Test public void dustAndSpeedSitBetweenTheWeatherAndTheNetwork() {
+        XmbStatusPrefs p = XmbStatusPrefs.fromConfig(Collections.emptyList());
+        int weather = p.order.indexOf("weather");
+        assertEquals("air", p.order.get(weather + 1));
+        assertEquals("speed", p.order.get(weather + 2));
+        assertEquals("network", p.order.get(weather + 3));
+        assertEquals(XmbStatusPrefs.ALWAYS, p.mode("air"));
+        assertEquals(XmbStatusPrefs.AUTO, p.mode("speed"));      // only while something downloads
+        // A setup saved on the TV before they existed gets them in their places, with their defaults.
+        XmbStatusPrefs old = XmbStatusPrefs.decode("v1;custom;0;weather=hidden,network=always,palette=always");
+        assertEquals(old.order.indexOf("weather") + 1, old.order.indexOf("air"));
+        assertEquals(XmbStatusPrefs.AUTO, old.mode("speed"));
+    }
+
+    @Test public void movedPastSkipsWhatIsInBetween() {
+        XmbStatusPrefs p = XmbStatusPrefs.fromConfig(Collections.emptyList());
+        // Carried down past the weather with the temperature (left out on a TV that cannot read it) in between.
+        XmbStatusPrefs q = p.movedPast("audio", "weather", 1);
+        assertEquals(q.order.indexOf("weather") + 1, q.order.indexOf("audio"));
+        XmbStatusPrefs r = q.movedPast("audio", "usb", -1);
+        assertEquals(r.order.indexOf("usb") - 1, r.order.indexOf("audio"));
+        assertEquals(p.order.size(), r.order.size());
+    }
+
     @Test public void missingKeysGoBackNearTheirDefaultNeighbours() {
         assertEquals(XmbStatusPrefs.defaultOrder(), XmbStatusPrefs.complete(Arrays.asList("network")));
     }

@@ -248,8 +248,16 @@
     <string name="xmb_st_audio">Bluetooth audio</string>
     <string name="xmb_st_temperature">Box temperature</string>
     <string name="xmb_st_weather">Weather</string>
+    <string name="xmb_st_air">PM2.5 dust</string>
+    <string name="xmb_st_speed">Network speed</string>
     <string name="xmb_st_network">Network</string>
     <string name="xmb_st_palette">Theme colour</string>
+    <string name="xmb_speedtest">Test internet speed</string>
+    <string name="xmb_speedtest_never">How fast the box downloads now (uses up to 90 MB)</string>
+    <string name="xmb_speedtest_start">Measuring</string>
+    <string name="xmb_speedtest_running">Measuring %1$s</string>
+    <string name="xmb_speedtest_ping">ping %1$d ms</string>
+    <string name="xmb_speedtest_failed">Could not reach the speed test</string>
     <string name="xmb_diag">Diagnostics</string>
     <string name="xmb_diag_detail">Screen recording and a log of what changed the screen</string>
     <string name="xmb_diag_record30">Record the screen for 30 seconds</string>

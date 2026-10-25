@@ -20,7 +20,8 @@ The grid's on-TV tools (Launcher settings, Edit dock, Reorder, the app library, 
 The order of the apps is still `dock_apps` from `config.xml` or a theme.
 
 Unlike the main project's launcher, this branch asks for three more permissions, all granted at install:
-`INTERNET` for the weather, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote battery icons, and
+`INTERNET` for the weather and the speed test, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote
+battery icons, and
 `QUERY_ALL_PACKAGES` to see an app Play Store is still downloading.
 
 ## Keys
@@ -45,8 +46,10 @@ Left of the clock, white icons with a soft glow, no frames. Always there, from t
 | Palette | The theme colour: it glows in the wave's colour |
 | Wi-Fi arcs, LAN | The connection: one, two or three lit arcs for the Wi-Fi strength, the LAN icon on a cable, a struck-out Wi-Fi when there is none |
 | Sky and degrees | The weather now (below) |
+| Mask and a number | Fine dust, PM2.5 in µg/m³, the mask glowing in the colour of Thailand's scale: blue up to 15, green up to 25, yellow up to 37.5, orange up to 75, red above |
 
-Only while there is something to say, further left: a download arrow with its progress while an app installs,
+Only while there is something to say, further left: the box's download speed (a gauge and "45 Mb/s", every app
+together) while something downloads faster than 2 Mb/s, a download arrow with its progress while an app installs,
 a USB drive, Bluetooth headphones or a speaker. Leftmost, in amber: the remote's battery under 20% (a battery on its
 side in four blocks, as on the PSP and PS3), storage under
 500 MB, ADB still on (USB debugging, which on many boxes also opens ADB on the network), and the remote-button
@@ -54,8 +57,8 @@ helper not running. For the last one Home first tries to fix it itself: 15 secon
 should run and does not, it turns accessibility off and on once (with `WRITE_SECURE_SETTINGS`, as
 `restore_key_services`), which binds a helper Android still holds as crashed.
 
-The weather comes from [Open-Meteo](https://open-meteo.com/) (no account or key) for the box's own last known
-location, rounded to 0.01 degree (about 1 km) before it is sent. It is read at most every 30 minutes, only while
+The weather and the dust come from [Open-Meteo](https://open-meteo.com/) (no account or key; its forecast and
+air-quality services) for the box's own last known location, rounded to 0.01 degree (about 1 km) before it is sent. It is read at most every 30 minutes, only while
 Home is on screen, and hidden when the last answer is more than three hours old. The remote's battery is the level
 Android reports for a paired input device or, where it reports none (an LE remote on Android 11, as on the Mi Box
 S), the level Home reads from the remote's own Battery Service: at most every six hours, over a GATT connection of
@@ -64,8 +67,19 @@ its own beside Android's, closed again at once.
 Settings > Status bar chooses what the row shows: a look (Standard, Simple, Everything, Clock only), each item
 always, only when there is something to say, or hidden (OK goes round them and the row changes at once), the order
 (OK picks an item up, Up and Down move it, OK puts it down), and whether the clock and the row stay on the wave when
-the menu fades. The box's temperature, when the firmware lets apps read it, is one of the items (hidden by default).
+the menu fades. The box's temperature, when the firmware lets apps read it, is one of the items (hidden by default;
+not listed on a TV whose firmware keeps it from apps, as the Mi Box S does). The dust shows always by default, or
+only from orange up; the speed only while something downloads by default, or always.
 From a computer: `"xmb_status": ["network=always", "weather=hidden"]`; a setup made on the TV wins.
+
+## Speed test
+
+Network > Test internet speed measures how fast the box downloads right now, for when a film stutters: OK starts it,
+the line under it counts up while it runs (and the status row shows the speed), and the result stays there, "115 Mb/s,
+ping 32 ms, 1 minute ago". It runs only when asked: four tiny requests for the round trip, then six seconds (at most
+90 MB) of download from Cloudflare's speed test service, `speed.cloudflare.com`, the one its own speed test page
+uses. The first second does not count (the connection getting up to speed), and the ping is the TCP round trip the
+service measured itself. Home going behind an app stops it.
 
 ## Diagnostics
 

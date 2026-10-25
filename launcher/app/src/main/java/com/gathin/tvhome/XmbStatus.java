@@ -20,6 +20,7 @@ import android.graphics.Typeface;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.TrafficStats;
 import android.net.wifi.WifiManager;
 import android.os.Environment;
 import android.os.Handler;
@@ -175,6 +176,7 @@ final class XmbStatus {
         }
         XmbWeather.refresh(act, this::refresh);
         XmbRemoteBattery.refresh(act, this::refreshSoon);
+        scheduleSpeed();
         refresh();
     }
 
@@ -184,6 +186,10 @@ final class XmbStatus {
         proxyGen++;
         handler.removeCallbacks(refreshRunnable);
         handler.removeCallbacks(rebindRunnable);
+        handler.removeCallbacks(speedTick);
+        rxLast = -1;
+        rate = 0f;
+        busy = false;
         if (downloadAnim != null) downloadAnim.cancel();
         try {
             act.unregisterReceiver(receiver);
@@ -233,6 +239,7 @@ final class XmbStatus {
     /** What the row shows and in which order (Settings > Status bar); takes effect at once. */
     void setPrefs(XmbStatusPrefs p) {
         setup = p;
+        scheduleSpeed();
         refresh();
     }
 
@@ -355,6 +362,23 @@ final class XmbStatus {
                 if (w != null) part = XmbWeather.icon(w.code, w.day) + "/" + w.temperature;
                 return w != null ? pair(icon(XmbWeather.icon(w.code, w.day)), w.temperature + "°") : null;
             }
+            case "air": {
+                // PM2.5: the mask glows in the colour of Thailand's scale; when needed means from orange up.
+                XmbWeather w = XmbWeather.current(act);
+                if (w == null || w.pm25x10 < 0) return null;
+                int band = XmbWeather.pmBand(w.pm25x10);
+                if (!always && band < 3) return null;
+                part = band + "/" + w.pm25();
+                int glow = (0xF2 << 24) | XmbWeather.PM_COLORS[band];
+                return pair(image(bitmap(R.drawable.ic_xmb_masks, Color.WHITE, 0x73FFFFFF, glow)), String.valueOf(w.pm25()));
+            }
+            case "speed": {
+                // The box's download rate, all apps together; when needed means while something downloads.
+                if (TrafficStats.getTotalRxBytes() == TrafficStats.UNSUPPORTED) return null;
+                if (!always && !busy) return null;
+                part = "on";   // the figure changes inside the item every second, not the row
+                return speedItem();
+            }
             case "network": {
                 int net = network();
                 part = String.valueOf(net);
@@ -378,11 +402,19 @@ final class XmbStatus {
     static int batteryBlocks(int level) {
         return level > 75 ? 4 : level > 50 ? 3 : level > 25 ? 2 : level > 5 ? 1 : 0;
     }
+
     private boolean storageLow;
-    private boolean tempLogged;
+    private static boolean tempLogged;
+    private static Boolean tempReadable;
+
+    /** Whether this firmware lets apps read the chip's temperature (the Mi Box S does not): else no such item. */
+    static boolean temperatureReadable() {
+        if (tempReadable == null) tempReadable = socTemperature() >= 0;
+        return tempReadable;
+    }
 
     /** The chip's temperature in degrees Celsius from the kernel's thermal zones, or -1 where apps may not read it. */
-    private int socTemperature() {
+    private static int socTemperature() {
         java.io.File dir = new java.io.File("/sys/class/thermal");
         java.io.File[] zones = dir.listFiles((d, n) -> n.startsWith("thermal_zone"));
         int best = -1;
@@ -465,6 +497,81 @@ final class XmbStatus {
         if (download.getParent() == null) download.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
         if (!downloadAnim.isStarted() && animating) downloadAnim.start();
         return download;
+    }
+
+    // ---- the network speed: the box's download rate, read once a second while the item may show ----------------
+
+    /** Shown when needed from 2 Mb/s held for two seconds, hidden again after eight seconds under 0.5 Mb/s. */
+    private static final float BUSY_MBPS = 2f, QUIET_MBPS = 0.5f;
+    private static final long SPEED_EVERY_MS = 1000, QUIET_MS = 8000;
+    private long rxLast = -1, rxAt, quietSince;
+    /** Megabits a second, smoothed over the last few seconds. */
+    private float rate;
+    private boolean busy;
+    private int fastSamples;
+    private View speed;
+    private TextView speedText;
+
+    private final Runnable speedTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!started) return;
+            sampleSpeed();
+            handler.postDelayed(this, SPEED_EVERY_MS);
+        }
+    };
+
+    private void scheduleSpeed() {
+        handler.removeCallbacks(speedTick);
+        if (!started || XmbStatusPrefs.HIDDEN.equals(setup.mode("speed"))) return;
+        rxLast = -1;
+        handler.post(speedTick);
+    }
+
+    private void sampleSpeed() {
+        long rx = TrafficStats.getTotalRxBytes(), now = SystemClock.elapsedRealtime();
+        if (rx == TrafficStats.UNSUPPORTED) return;
+        if (rxLast >= 0 && now > rxAt && rx >= rxLast) {
+            rate = rate * 0.4f + XmbSpeedTest.mbps(rx - rxLast, now - rxAt) * 0.6f;
+        }
+        rxLast = rx;
+        rxAt = now;
+        boolean was = busy;
+        if (rate >= BUSY_MBPS) {
+            quietSince = 0;
+            if (++fastSamples >= 2) busy = true;
+        } else {
+            fastSamples = 0;
+            if (rate >= QUIET_MBPS) quietSince = 0;
+            else if (quietSince == 0) quietSince = now;
+            else if (now - quietSince >= QUIET_MS) busy = false;
+        }
+        if (speedText != null) speedText.setText(rate(rate));
+        if (busy != was) refresh();
+    }
+
+    /** A rate as the row shows it: "4.5 Mb/s", "45 Mb/s", "1.2 Gb/s". */
+    static String rate(float mbps) {
+        if (mbps >= 999.5f) return String.format(java.util.Locale.ROOT, "%.1f Gb/s", mbps / 1000f);
+        if (mbps >= 9.95f) return Math.round(mbps) + " Mb/s";
+        return String.format(java.util.Locale.ROOT, "%.1f Mb/s", Math.max(0f, mbps));
+    }
+
+    /** The speed item, kept between refreshes; its figure is as wide as the widest, so the row keeps still. */
+    private View speedItem() {
+        if (speed == null) {
+            speed = pair(icon(R.drawable.ic_xmb_speed), rate(rate));
+            speedText = (TextView) ((ViewGroup) speed).getChildAt(1);
+            Paint p = speedText.getPaint();
+            float w = 0;
+            for (String widest : new String[]{"000 Mb/s", "0.0 Gb/s", "0.0 Mb/s"}) w = Math.max(w, p.measureText(widest));
+            ViewGroup.LayoutParams lp = speedText.getLayoutParams();
+            lp.width = (int) Math.ceil(w) + 1;
+            speedText.setLayoutParams(lp);
+        }
+        speedText.setText(rate(rate));
+        if (speed.getParent() == null) speed.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        return speed;
     }
 
     /** The menu faded out to the wave: nothing in the row needs to move meanwhile. */

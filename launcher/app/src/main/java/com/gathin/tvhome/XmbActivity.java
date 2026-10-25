@@ -327,6 +327,7 @@ public class XmbActivity extends Activity {
     @Override
     protected void onPause() {
         resumed = false;
+        XmbSpeedTest.cancel();
         closeSide(true);
         closePrompt();
         status.stop();
@@ -1180,6 +1181,10 @@ public class XmbActivity extends Activity {
             openDiagnostics(0);
             return;
         }
+        if (XmbCatalog.ACTION_SPEEDTEST.equals(item.action)) {
+            runSpeedTest();
+            return;
+        }
         open(item);
     }
 
@@ -1962,6 +1967,8 @@ public class XmbActivity extends Activity {
             case "audio": return R.drawable.ic_xmb_headphones;
             case "temperature": return R.drawable.ic_xmb_thermostat;
             case "weather": return R.drawable.ic_xmb_partly_cloudy_day;
+            case "air": return R.drawable.ic_xmb_masks;
+            case "speed": return R.drawable.ic_xmb_speed;
             case "network": return R.drawable.ic_xmb_wifi;
             default: return R.drawable.ic_xmb_palette;
         }
@@ -1983,8 +1990,7 @@ public class XmbActivity extends Activity {
         texts.add(getString(R.string.xmb_status_preset, presetName(statusPrefs.preset)));
         icons.add(R.drawable.ic_xmb_tune);
         keys.add(null);
-        for (String key : statusPrefs.order) {
-            if (XmbStatusPrefs.item(key).modes.size() < 2) continue;   // nothing to choose (recording)
+        for (String key : statusChoices()) {
             texts.add(getString(R.string.xmb_status_item, itemName(key), modeName(statusPrefs.mode(key))));
             icons.add(itemIcon(key));
             keys.add(key);
@@ -2009,9 +2015,25 @@ public class XmbActivity extends Activity {
         }, null);
     }
 
+    /** The items the row can show on this TV, in order: all but the temperature where apps cannot read it. */
+    private List<String> statusListed() {
+        List<String> out = new ArrayList<>();
+        for (String key : statusPrefs.order) {
+            if (!"temperature".equals(key) || XmbStatus.temperatureReadable()) out.add(key);
+        }
+        return out;
+    }
+
+    /** Those with a mode to choose (a recording always shows). */
+    private List<String> statusChoices() {
+        List<String> out = new ArrayList<>();
+        for (String key : statusListed()) if (XmbStatusPrefs.item(key).modes.size() > 1) out.add(key);
+        return out;
+    }
+
     /** Reorder: OK picks an item up (it turns the accent colour), Up and Down carry it, OK puts it down. */
     private void openStatusOrder(int focus, String carrying) {
-        List<String> order = statusPrefs.order, texts = new ArrayList<>();
+        List<String> order = statusListed(), texts = new ArrayList<>();
         List<Integer> icons = new ArrayList<>();
         for (String key : order) {
             texts.add(itemName(key));
@@ -2021,9 +2043,10 @@ public class XmbActivity extends Activity {
             @Override
             public boolean upDown(int by) {
                 if (carrying == null) return false;
-                int at = statusPrefs.order.indexOf(carrying), to = at + by;
-                if (to < 0 || to >= statusPrefs.order.size()) return true;
-                setStatus(statusPrefs.moved(carrying, by));
+                int to = order.indexOf(carrying) + by;
+                if (to < 0 || to >= order.size()) return true;
+                // Past the next item shown, over any this TV leaves out.
+                setStatus(statusPrefs.movedPast(carrying, order.get(to), by));
                 sounds.play(by < 0 ? XmbSounds.CURSOR : XmbSounds.CURSOR_DOWN);
                 sideQuiet = true;
                 openStatusOrder(to, carrying);
@@ -2033,11 +2056,39 @@ public class XmbActivity extends Activity {
             @Override
             public void picked(int i) {
                 sideQuiet = true;
-                openStatusOrder(i, carrying == null ? statusPrefs.order.get(i) : null);
+                openStatusOrder(i, carrying == null ? order.get(i) : null);
             }
-        }, () -> openStatus(statusPrefs.order.size()));
+        }, () -> openStatus(1 + statusChoices().size()));   // back on Reorder
         sideMarked = carrying != null ? order.indexOf(carrying) : -1;
         layoutSide(true);
+    }
+
+    // ---- network speed test ------------------------------------------------------------------------------------
+
+    /** Network > Test internet speed: the item's line counts up while it measures, the result stays there. */
+    private void runSpeedTest() {
+        if (XmbSpeedTest.running()) return;
+        setItemDetail(XmbCatalog.SPEEDTEST, getString(R.string.xmb_speedtest_start));
+        XmbDebug.log("speed test started");
+        XmbSpeedTest.start(this, (running, r) -> {
+            if (running) {
+                setItemDetail(XmbCatalog.SPEEDTEST, getString(R.string.xmb_speedtest_running, XmbStatus.rate(r.mbps)));
+                return;
+            }
+            XmbDebug.log(r != null ? "speed test: " + XmbStatus.rate(r.mbps) : "speed test failed");
+            if (!resumed) return;
+            showToast(r != null ? XmbCatalog.speedResult(this, r) : getString(R.string.xmb_speedtest_failed));
+            reload();   // the kept result becomes the item's line (in place: the line is not part of the signature)
+        });
+    }
+
+    /** The line under an item in the column on screen, if it is there. */
+    private void setItemDetail(String key, String text) {
+        for (Row r : rows) {
+            if (!r.item.key.equals(key)) continue;
+            r.detail.setText(text);
+            if (r == selectedRow()) r.detail.setVisibility(View.VISIBLE);
+        }
     }
 
     // ---- diagnostics -------------------------------------------------------------------------------------------

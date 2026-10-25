@@ -325,7 +325,7 @@
     <string name="xmb_color" translatable="false">month</string>
     <!-- XMB home: the status row by the clock, "key=mode" from left to right, mode always, auto (only when there is
          something to say) or hidden. Keys: recording, battery, storage, adb, helper, download, usb, audio, temperature,
-         weather, network, palette; the ones left out keep their place and default. A setup made on the TV
+         weather, air (PM2.5), speed, network, palette; the ones left out keep their place and default. A setup made on the TV
          (Settings > Status bar) wins. Leave empty for the standard row. -->
     <string-array name="xmb_status" translatable="false">
     </string-array>

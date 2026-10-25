@@ -20,10 +20,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * The weather for the XMB's status row: the temperature and the sky now, from Open-Meteo (no account or key) for
- * where the TV is. The place is the box's own last known location (it has one from Wi-Fi), rounded to 0.01 degree
- * (about 1 km) before it leaves the TV. Read at most every 30 minutes and only while Home is on screen; the last
- * answer is kept in the settings so Home shows it at once, and is dropped when it is more than three hours old.
+ * The weather for the XMB's status row: the temperature and the sky now, and the fine dust (PM2.5), from Open-Meteo
+ * (no account or key; its forecast and air-quality services) for where the TV is. The place is the box's own last
+ * known location (it has one from Wi-Fi), rounded to 0.01 degree (about 1 km) before it leaves the TV. Read at most
+ * every 30 minutes and only while Home is on screen; the last answer is kept in the settings so Home shows it at
+ * once, and is dropped when it is more than three hours old.
  */
 final class XmbWeather {
     private static final String TAG = "TvHome.Weather";
@@ -37,14 +38,34 @@ final class XmbWeather {
     final int temperature;
     final int code;
     final boolean day;
+    /** PM2.5 in tenths of a microgram per cubic metre, or -1 when the air-quality service did not answer. */
+    final int pm25x10;
     final long time;
 
-    XmbWeather(int temperature, int code, boolean day, long time) {
+    XmbWeather(int temperature, int code, boolean day, int pm25x10, long time) {
         this.temperature = temperature;
         this.code = code;
         this.day = day;
+        this.pm25x10 = pm25x10;
         this.time = time;
     }
+
+    /** PM2.5 in whole micrograms per cubic metre, as shown; -1 for none. */
+    int pm25() {
+        return pm25x10 < 0 ? -1 : Math.round(pm25x10 / 10f);
+    }
+
+    /**
+     * The band of a PM2.5 level (tenths of µg/m³) on Thailand's air-quality scale (Pollution Control Department,
+     * 2023): 0 very good up to 15, 1 good up to 25, 2 moderate up to 37.5, 3 starting to affect health up to 75,
+     * 4 affecting health above that.
+     */
+    static int pmBand(int pm25x10) {
+        return pm25x10 <= 150 ? 0 : pm25x10 <= 250 ? 1 : pm25x10 <= 375 ? 2 : pm25x10 <= 750 ? 3 : 4;
+    }
+
+    /** The scale's colours, softened for a glow: blue, green, yellow, orange, red. */
+    static final int[] PM_COLORS = {0x4FC3F7, 0x8BD45A, 0xF2D33C, 0xF59A2E, 0xF0504A};
 
     /** The last answer if it is fresh enough to show, else null. */
     static XmbWeather current(Context ctx) {
@@ -82,10 +103,28 @@ final class XmbWeather {
             if (c.getResponseCode() != 200) return null;
             JSONObject now = new JSONObject(read(c.getInputStream())).getJSONObject("current");
             return new XmbWeather((int) Math.round(now.getDouble("temperature_2m")), now.getInt("weather_code"),
-                    now.optInt("is_day", 1) == 1, System.currentTimeMillis());
+                    now.optInt("is_day", 1) == 1, pm25(at), System.currentTimeMillis());
         } catch (Exception e) {
             Log.i(TAG, "weather not read: " + e);
             return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** PM2.5 now in tenths of µg/m³ from the air-quality service, or -1: the weather is shown without it. */
+    private static int pm25(double[] at) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(airUrl(at[0], at[1])).openConnection();
+            c.setConnectTimeout(10_000);
+            c.setReadTimeout(10_000);
+            if (c.getResponseCode() != 200) return -1;
+            double pm = new JSONObject(read(c.getInputStream())).getJSONObject("current").getDouble("pm2_5");
+            return pm >= 0 && pm < 2000 ? (int) Math.round(pm * 10) : -1;
+        } catch (Exception e) {
+            Log.i(TAG, "air quality not read: " + e);
+            return -1;
         } finally {
             if (c != null) c.disconnect();
         }
@@ -95,6 +134,12 @@ final class XmbWeather {
     static String url(double lat, double lon) {
         return String.format(Locale.ROOT, "https://api.open-meteo.com/v1/forecast?latitude=%.2f&longitude=%.2f"
                 + "&current=temperature_2m,weather_code,is_day&timezone=auto", round(lat), round(lon));
+    }
+
+    /** The air-quality request for one place, the same rounded coordinates. */
+    static String airUrl(double lat, double lon) {
+        return String.format(Locale.ROOT, "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%.2f"
+                + "&longitude=%.2f&current=pm2_5&timezone=auto", round(lat), round(lon));
     }
 
     /** To 0.01 degree, about 1 km: plenty for the weather, and no closer to the house than that. */
@@ -146,13 +191,14 @@ final class XmbWeather {
     }
 
     static String encode(XmbWeather w) {
-        return new XmbStamped(w.time, w.temperature, w.code, w.day ? 1 : 0).encode();
+        return new XmbStamped(w.time, w.temperature, w.code, w.day ? 1 : 0, w.pm25x10).encode();
     }
 
+    /** An answer kept by encode(); an older build's, without the dust, reads as none, so it is fetched again. */
     static XmbWeather decode(String s) {
-        XmbStamped st = XmbStamped.decode(s, 3);
+        XmbStamped st = XmbStamped.decode(s, 4);
         if (st == null || st.number(0, Integer.MIN_VALUE) == Integer.MIN_VALUE || st.number(1, -1) < 0) return null;
-        return new XmbWeather(st.number(0, 0), st.number(1, 0), st.number(2, 1) == 1, st.time);
+        return new XmbWeather(st.number(0, 0), st.number(1, 0), st.number(2, 1) == 1, st.number(3, -1), st.time);
     }
 
     private static String read(InputStream in) throws java.io.IOException {
