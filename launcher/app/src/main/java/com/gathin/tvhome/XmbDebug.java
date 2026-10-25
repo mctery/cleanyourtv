@@ -19,6 +19,7 @@ final class XmbDebug {
     private static final String TAG = "TvHome.Debug";
     private static final int MAX = 60;
     private static final ArrayDeque<String> LINES = new ArrayDeque<>();
+    private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
     /** Called on the main thread after a new line, when the on-screen panel is showing. */
     static volatile Runnable listener;
 
@@ -33,7 +34,7 @@ final class XmbDebug {
         }
         Log.i(TAG, what);
         Runnable l = listener;
-        if (l != null) new android.os.Handler(android.os.Looper.getMainLooper()).post(l);
+        if (l != null) MAIN.post(l);
     }
 
     /** The newest lines first. */

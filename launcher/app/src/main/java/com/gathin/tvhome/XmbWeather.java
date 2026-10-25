@@ -1,7 +1,6 @@
 package com.gathin.tvhome;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationManager;
@@ -49,14 +48,14 @@ final class XmbWeather {
 
     /** The last answer if it is fresh enough to show, else null. */
     static XmbWeather current(Context ctx) {
-        XmbWeather w = decode(prefs(ctx).getString(PREF, null));
+        XmbWeather w = decode(Config.settings(ctx).getString(PREF, null));
         return w != null && Math.abs(System.currentTimeMillis() - w.time) < STALE_MS ? w : null;
     }
 
     /** Reads the weather again when the last answer is 30 minutes old; calls back on the main thread if it changed. */
     static void refresh(Context ctx, Runnable changed) {
         long now = System.currentTimeMillis();
-        XmbWeather last = decode(prefs(ctx).getString(PREF, null));
+        XmbWeather last = decode(Config.settings(ctx).getString(PREF, null));
         if (last != null && now - last.time < REFRESH_MS) return;
         if (now - lastAttempt < RETRY_MS) return;
         lastAttempt = now;
@@ -64,7 +63,7 @@ final class XmbWeather {
         NET.execute(() -> {
             XmbWeather w = fetch(app);
             if (w == null) return;
-            prefs(app).edit().putString(PREF, encode(w)).apply();
+            Config.settings(app).edit().putString(PREF, encode(w)).apply();
             new Handler(Looper.getMainLooper()).post(changed);
         });
     }
@@ -147,18 +146,13 @@ final class XmbWeather {
     }
 
     static String encode(XmbWeather w) {
-        return w.temperature + "|" + w.code + "|" + (w.day ? 1 : 0) + "|" + w.time;
+        return new XmbStamped(w.time, w.temperature, w.code, w.day ? 1 : 0).encode();
     }
 
     static XmbWeather decode(String s) {
-        if (s == null) return null;
-        String[] p = s.split("\\|");
-        if (p.length != 4) return null;
-        try {
-            return new XmbWeather(Integer.parseInt(p[0]), Integer.parseInt(p[1]), "1".equals(p[2]), Long.parseLong(p[3]));
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        XmbStamped st = XmbStamped.decode(s, 3);
+        if (st == null || st.number(0, Integer.MIN_VALUE) == Integer.MIN_VALUE || st.number(1, -1) < 0) return null;
+        return new XmbWeather(st.number(0, 0), st.number(1, 0), st.number(2, 1) == 1, st.time);
     }
 
     private static String read(InputStream in) throws java.io.IOException {
@@ -169,9 +163,5 @@ final class XmbWeather {
             while ((n = s.read(buf)) > 0 && out.size() < 65536) out.write(buf, 0, n);
             return out.toString(StandardCharsets.UTF_8.name());
         }
-    }
-
-    private static SharedPreferences prefs(Context ctx) {
-        return ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE);
     }
 }

@@ -1,6 +1,5 @@
 package com.gathin.tvhome;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -13,20 +12,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageInstaller;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BlurMaskFilter;
-import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
-import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.StatFs;
@@ -43,7 +37,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -77,10 +70,9 @@ final class XmbStatus {
     private final Typeface face;
     private final Handler handler;
     private final long createdAt = SystemClock.elapsedRealtime();
-    private final Map<String, Bitmap> bitmaps = new HashMap<>();
     private final Map<Integer, Float> installs = new HashMap<>();
     private int accent = 0xD6517A;
-    private boolean started, rebindTried, batteryLogged;
+    private boolean started, rebindTried;
     private BluetoothProfile a2dp;
     /** Counts start() calls: a Bluetooth proxy that arrives for an older one is closed, not kept. */
     private int proxyGen;
@@ -101,11 +93,6 @@ final class XmbStatus {
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setClipChildren(false);
         row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-    }
-
-    /** Memory is wanted and Home is hidden: the glow bitmaps are drawn again when next needed. */
-    void trim() {
-        bitmaps.clear();
     }
 
     void setAccent(int rgb) {
@@ -163,7 +150,7 @@ final class XmbStatus {
         }
         watchInstalls();
         try {
-            BluetoothAdapter adapter = bluetoothAllowed() ? BluetoothAdapter.getDefaultAdapter() : null;
+            BluetoothAdapter adapter = XmbRemoteBattery.bluetoothAllowed(act) ? BluetoothAdapter.getDefaultAdapter() : null;
             int gen = ++proxyGen;
             if (adapter != null) {
                 adapter.getProfileProxy(act.getApplicationContext(), new BluetoothProfile.ServiceListener() {
@@ -187,7 +174,7 @@ final class XmbStatus {
             // no Bluetooth, or no permission for it (Android 12 and later)
         }
         XmbWeather.refresh(act, this::refresh);
-        if (bluetoothAllowed()) XmbRemoteBattery.refresh(act, this::refreshSoon);
+        XmbRemoteBattery.refresh(act, this::refreshSoon);
         refresh();
     }
 
@@ -226,7 +213,7 @@ final class XmbStatus {
     void tick() {
         if (!started) return;
         XmbWeather.refresh(act, this::refresh);
-        if (bluetoothAllowed()) XmbRemoteBattery.refresh(act, this::refreshSoon);
+        XmbRemoteBattery.refresh(act, this::refreshSoon);
         refresh();
     }
 
@@ -319,12 +306,13 @@ final class XmbStatus {
             case "recording":
                 return XmbRecorder.recording ? image(bitmap(R.drawable.ic_xmb_videocam, 0xFFFFB4B4, 0xA6FF8080, 0xD9E0302A)) : null;
             case "battery": {
-                int level = remoteBattery();
+                int level = XmbRemoteBattery.level(act);
                 if (level < 0) return null;
                 boolean low = level < LOW_BATTERY;
                 if (!low && !always) return null;
                 part = low + "/" + level;
-                View icon = low ? warnIcon(R.drawable.ic_xmb_battery_1_bar) : icon(R.drawable.ic_xmb_battery_full);
+                int res = BATTERY[batteryBlocks(level)];
+                View icon = low ? warnIcon(res) : icon(res);
                 return always ? pair(icon, level + "%") : icon;
             }
             case "storage": {
@@ -382,6 +370,14 @@ final class XmbStatus {
     }
 
     private static final int HOT_CELSIUS = 75;
+    /** A battery on its side in four blocks, as on the PSP and PS3, by blocks lit. */
+    static final int[] BATTERY = {R.drawable.ic_xmb_battery_h0, R.drawable.ic_xmb_battery_h1,
+            R.drawable.ic_xmb_battery_h2, R.drawable.ic_xmb_battery_h3, R.drawable.ic_xmb_battery_h4};
+
+    /** Blocks lit for a level: four above 75%, three above 50%, two above 25%, one above 5%. */
+    static int batteryBlocks(int level) {
+        return level > 75 ? 4 : level > 50 ? 3 : level > 25 ? 2 : level > 5 ? 1 : 0;
+    }
     private boolean storageLow;
     private boolean tempLogged;
 
@@ -412,11 +408,6 @@ final class XmbStatus {
 
     private final java.util.Set<String> shown = new java.util.HashSet<>();
     private boolean animate = true;
-
-    private static View tag(View v, String key) {
-        v.setTag(key);
-        return v;
-    }
 
     /** Animations off (reduced motion): items appear as they are. */
     void setMotion(boolean on) {
@@ -525,63 +516,49 @@ final class XmbStatus {
         t.setShadowLayer(u.px(9), 0, 0, 0x66FFFFFF);
         t.setFontFeatureSettings("tnum");   // equal-width digits: a changing number does not nudge the row
         t.setText(number);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
+        // The row is as tall as an icon, shorter than a line of this size. Left to wrap, the text was cut to the
+        // row's height and drawn from its top, the figures 5 px below the icons; at its full height it is centred
+        // on the row, and lifted by what the figures sit below the middle of their line.
+        t.setTranslationY(-inkDrop(t.getPaint()));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, t.getPaint().getFontMetricsInt(null));
         tlp.leftMargin = u.px(8);
         p.addView(t, tlp);
         p.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
         return p;
     }
 
-    /** The icon over two glows, a tight one and a wide one, made once per icon and colours. */
+    /** The icon over two glows, a tight one and a wide one (XmbGlow keeps it). */
     private Bitmap bitmap(int res, int tint, int innerGlow, int outerGlow) {
-        String key = res + "/" + tint + "/" + innerGlow + "/" + outerGlow;
-        Bitmap cached = bitmaps.get(key);
-        if (cached != null) return cached;
-        int size = u.px(ICON), pad = u.px(PAD), full = size + 2 * pad;
-        Drawable d = act.getDrawable(res).mutate();
-        d.setBounds(pad, pad, pad + size, pad + size);
-        Bitmap shape = Bitmap.createBitmap(full, full, Bitmap.Config.ARGB_8888);
-        d.setTint(Color.WHITE);
-        d.draw(new Canvas(shape));
-        Bitmap alpha = shape.extractAlpha();
-        shape.recycle();
-        Bitmap out = Bitmap.createBitmap(full, full, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(out);
-        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        p.setColor(outerGlow);
-        p.setMaskFilter(new BlurMaskFilter(Math.max(1, u.px(10)), BlurMaskFilter.Blur.NORMAL));
-        c.drawBitmap(alpha, 0, 0, p);
-        p.setColor(innerGlow);
-        p.setMaskFilter(new BlurMaskFilter(Math.max(1, u.px(3)), BlurMaskFilter.Blur.NORMAL));
-        c.drawBitmap(alpha, 0, 0, p);
-        alpha.recycle();
-        d.setTint(tint);
-        d.draw(c);
-        if (bitmaps.size() > 48) bitmaps.clear();
-        bitmaps.put(key, out);
-        return out;
+        return XmbGlow.icon(res, act.getDrawable(res), u.px(ICON), u.px(PAD), tint, innerGlow, u.px(3), outerGlow,
+                u.px(10));
+    }
+
+    /**
+     * How far below the middle of its line (ascent to descent, the box a TextView without font padding centres) the
+     * ink of figures sits, in pixels: lifted by that, a number lines up with the icon beside it. Outfit's figures
+     * stand on the baseline and reach to cap height, so their middle is a little below the line's.
+     */
+    static float inkDrop(Paint p) {
+        Paint.FontMetricsInt fm = p.getFontMetricsInt();
+        return inkCentre(p, "0123456789") - (fm.ascent + fm.descent) / 2f;
+    }
+
+    /** The middle of a text's ink, from the baseline (negative: above it). */
+    static float inkCentre(Paint p, String text) {
+        Rect r = new Rect();
+        p.getTextBounds(text, 0, text.length(), r);
+        return (r.top + r.bottom) / 2f;
     }
 
     // ---- what the icons read -----------------------------------------------------------------------------------
 
-    /** Wi-Fi in three strengths, the LAN, or no connection. */
+    /** Wi-Fi in three strengths, the LAN (or another way out), or no connection. */
     private int network() {
-        try {
-            ConnectivityManager cm = act.getSystemService(ConnectivityManager.class);
-            NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
-            if (caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                return R.drawable.ic_xmb_wifi_off;
-            }
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                WifiManager wm = (WifiManager) act.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                WifiInfo info = wm != null ? wm.getConnectionInfo() : null;
-                int level = info != null ? wifiBars(info.getRssi()) : 3;
-                return level >= 3 ? R.drawable.ic_xmb_wifi_3 : level == 2 ? R.drawable.ic_xmb_wifi_2 : R.drawable.ic_xmb_wifi_1;
-            }
-            return R.drawable.ic_xmb_lan;
-        } catch (RuntimeException e) {
-            return R.drawable.ic_xmb_wifi_off;
-        }
+        XmbNet net = XmbNet.read(act);
+        if (net.kind == XmbNet.NONE) return R.drawable.ic_xmb_wifi_off;
+        if (net.kind != XmbNet.WIFI) return R.drawable.ic_xmb_lan;
+        int level = net.rssi != 0 ? wifiBars(net.rssi) : 3;
+        return level >= 3 ? R.drawable.ic_xmb_wifi_3 : level == 2 ? R.drawable.ic_xmb_wifi_2 : R.drawable.ic_xmb_wifi_1;
     }
 
     private int bars = 3;
@@ -714,16 +691,10 @@ final class XmbStatus {
         return false;
     }
 
-    /** Up to Android 11 the install-time BLUETOOTH permission covers these reads; later it needs a runtime grant. */
-    private boolean bluetoothAllowed() {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S
-                || act.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
-    }
-
     /** Headphones or a speaker playing over Bluetooth (A2DP), as its icon; 0 for none. */
     @SuppressLint("MissingPermission")   // bluetoothAllowed()
     private int bluetoothAudio() {
-        if (a2dp == null || !bluetoothAllowed()) return 0;
+        if (a2dp == null || !XmbRemoteBattery.bluetoothAllowed(act)) return 0;
         try {
             for (BluetoothDevice d : a2dp.getConnectedDevices()) {
                 BluetoothClass c = d.getBluetoothClass();
@@ -736,42 +707,5 @@ final class XmbStatus {
         } catch (RuntimeException ignored) {
         }
         return 0;
-    }
-
-    /**
-     * The lowest battery level a paired remote or other input device reports, or -1 when none does. Android keeps
-     * the level it reads for each device but offers it to apps only through a hidden method; where it has none (an
-     * LE remote on Android 11), the level read from the remote's own Battery Service.
-     */
-    @SuppressLint("MissingPermission")   // bluetoothAllowed()
-    private int remoteBattery() {
-        if (!bluetoothAllowed()) return -1;
-        try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter == null) return -1;
-            Method level = BluetoothDevice.class.getMethod("getBatteryLevel");
-            int lowest = -1;
-            StringBuilder seen = new StringBuilder();
-            for (BluetoothDevice d : adapter.getBondedDevices()) {
-                BluetoothClass c = d.getBluetoothClass();
-                int major = c != null ? c.getMajorDeviceClass() : BluetoothClass.Device.Major.UNCATEGORIZED;
-                if (major == BluetoothClass.Device.Major.AUDIO_VIDEO) continue;
-                int l = (Integer) level.invoke(d);
-                seen.append(d.getType()).append('/').append(Integer.toHexString(major)).append('=').append(l).append(' ');
-                if (l >= 0 && (lowest < 0 || l < lowest)) lowest = l;
-            }
-            if (!batteryLogged) {
-                batteryLogged = true;
-                Log.i(TAG, "input device battery levels: " + seen);
-            }
-            // Android 11 keeps none for an LE remote: read from the remote itself (XmbRemoteBattery).
-            return lowest >= 0 ? lowest : XmbRemoteBattery.cached(act);
-        } catch (Exception e) {
-            if (!batteryLogged) {
-                batteryLogged = true;
-                Log.i(TAG, "battery level not readable: " + e);
-            }
-            return XmbRemoteBattery.cached(act);
-        }
     }
 }

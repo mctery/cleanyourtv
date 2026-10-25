@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A battery on its side in four blocks, 3 lit (the unlit ones faint), as on the PSP and PS3. Drawn for
+     the launcher, at the stroke of the Material Symbols beside it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="960" android:viewportHeight="960">
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M116,270H776Q836,270 836,330V630Q836,690 776,690H116Q56,690 56,630V330Q56,270 116,270ZM124,326H768Q780,326 780,338V622Q780,634 768,634H124Q112,634 112,622V338Q112,326 124,326Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M870,390H888Q906,390 906,408V552Q906,570 888,570H870Q852,570 852,552V408Q852,390 870,390Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M150,354H263Q273,354 273,364V596Q273,606 263,606H150Q140,606 140,596V364Q140,354 150,354Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M309,354H422Q432,354 432,364V596Q432,606 422,606H309Q299,606 299,596V364Q299,354 309,354Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M468,354H581Q591,354 591,364V596Q591,606 581,606H468Q458,606 458,596V364Q458,354 468,354Z" />
+        <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.2" android:pathData="M627,354H740Q750,354 750,364V596Q750,606 740,606H627Q617,606 617,596V364Q617,354 627,354Z" />
+</vector>

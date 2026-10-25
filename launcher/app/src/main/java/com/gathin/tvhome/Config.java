@@ -277,6 +277,11 @@ final class Config {
         return ctx.getExternalFilesDir(null);
     }
 
+    /** The choices made on the TV (Launcher settings, and everything the XMB home keeps). */
+    static SharedPreferences settings(Context ctx) {
+        return ctx.getSharedPreferences(SETTINGS_NAME, Context.MODE_PRIVATE);
+    }
+
     static Config load(Context ctx) {
         Resources res = ctx.getResources();
         List<String> dock = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.dock_apps)));
@@ -416,7 +421,7 @@ final class Config {
         }
         // A theme push or reset invalidates choices made on the TV. On first use, remember the
         // current theme without clearing choices from an older launcher version.
-        SharedPreferences choices = ctx.getSharedPreferences(SETTINGS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences choices = settings(ctx);
         // Unmounted storage looks like a theme reset; compare only once the file is readable.
         if (mounted) syncThemeChoices(choices, dir, file);
         int chosenColumns = choices.getInt("columns", columns);

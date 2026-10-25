@@ -45,15 +45,14 @@ final class XmbSounds {
                 }
             }
         });
-        File dir = Config.dir(ctx);
         boolean found = false;
         for (int i = 0; i < NAMES.length; i++) {
-            File f = loud(ctx, file(dir, NAMES[i]));
+            File f = loud(ctx, find(ctx, NAMES[i], ".wav", ".ogg"));
             ids[i] = f != null ? pool.load(f.getAbsolutePath(), 1) : 0;
             found |= ids[i] != 0;
         }
         any = found;
-        on = ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE).getBoolean(PREF, true);
+        on = Config.settings(ctx).getBoolean(PREF, true);
     }
 
     /**
@@ -77,10 +76,12 @@ final class XmbSounds {
         }
     }
 
-    private static File file(File dir, String name) {
+    /** The owner's file Config.dir()/sfx/name with the first of the types that is there and not empty, or null. */
+    static File find(Context ctx, String name, String... types) {
+        File dir = Config.dir(ctx);
         if (dir == null) return null;
-        for (String ext : new String[]{".wav", ".ogg"}) {
-            File f = new File(new File(dir, DIR), name + ext);
+        for (String type : types) {
+            File f = new File(new File(dir, DIR), name + type);
             if (f.isFile() && f.length() > 0) return f;
         }
         return null;
@@ -97,7 +98,7 @@ final class XmbSounds {
 
     void setOn(Context ctx, boolean value) {
         on = value;
-        ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE).edit().putBoolean(PREF, value).apply();
+        Config.settings(ctx).edit().putBoolean(PREF, value).apply();
     }
 
     void play(String name) {

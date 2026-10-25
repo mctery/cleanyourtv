@@ -35,6 +35,22 @@ final class ServiceRepair {
 
     private static final String BACKUP = "accessibility_rebind_backup";
 
+    /** Android's list of enabled accessibility services, "" for none (it can also hold null or "null"). */
+    private static String enabledList(ContentResolver cr) {
+        String list = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return list == null || list.equals("null") ? "" : list;
+    }
+
+    /** The services on such a list. */
+    private static List<ComponentName> parse(String list) {
+        List<ComponentName> out = new ArrayList<>();
+        for (String entry : list.split(":")) {
+            ComponentName name = ComponentName.unflattenFromString(entry);
+            if (name != null) out.add(name);
+        }
+        return out;
+    }
+
     /** Puts back a list rebind() took off, if it is still off (rebind's own delayed step, or restore after a crash). */
     private static void putBack(Context context) {
         SharedPreferences backup = context.getSharedPreferences(BACKUP, Context.MODE_PRIVATE);
@@ -42,8 +58,7 @@ final class ServiceRepair {
         if (list == null) return;
         try {
             ContentResolver cr = context.getContentResolver();
-            String now = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-            if (now == null || now.isEmpty() || now.equals("null")) {
+            if (enabledList(cr).isEmpty()) {
                 Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, list);
                 Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
             }
@@ -58,15 +73,9 @@ final class ServiceRepair {
         putBack(context);
         try {
             ContentResolver cr = context.getContentResolver();
-            String list = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-            List<ComponentName> enabled = new ArrayList<>();
-            if (list != null) {
-                for (String entry : list.split(":")) {
-                    ComponentName name = ComponentName.unflattenFromString(entry);
-                    if (name != null) enabled.add(name);
-                }
-            }
-            StringBuilder updated = new StringBuilder(list == null || list.equals("null") ? "" : list);
+            String list = enabledList(cr);
+            List<ComponentName> enabled = parse(list);
+            StringBuilder updated = new StringBuilder(list);
             boolean missing = false;
             for (String service : prefs(context).getAll().keySet()) {
                 ComponentName name = new ComponentName(context.getPackageName(), service);
@@ -86,13 +95,8 @@ final class ServiceRepair {
     /** The helper should be running: it is on Android's list, or it recorded itself and was not turned off. */
     static boolean expected(Context context, Class<?> service) {
         if (prefs(context).contains(service.getName())) return true;
-        String list = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        ComponentName name = new ComponentName(context.getPackageName(), service.getName());
-        if (list == null) return false;
-        for (String entry : list.split(":")) {
-            if (name.equals(ComponentName.unflattenFromString(entry))) return true;
-        }
-        return false;
+        return parse(enabledList(context.getContentResolver()))
+                .contains(new ComponentName(context.getPackageName(), service.getName()));
     }
 
     /**
@@ -106,8 +110,8 @@ final class ServiceRepair {
         restore(context);
         ContentResolver cr = context.getContentResolver();
         try {
-            String list = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-            if (list == null || list.isEmpty() || list.equals("null")) return false;
+            String list = enabledList(cr);
+            if (list.isEmpty()) return false;
             // Written down first: if this process dies in the two seconds the list is empty, the next restore()
             // puts every app's helpers back, not just ours.
             context.getSharedPreferences(BACKUP, Context.MODE_PRIVATE).edit().putString(BACKUP, list).commit();

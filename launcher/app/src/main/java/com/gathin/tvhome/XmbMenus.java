@@ -205,7 +205,7 @@ final class XmbMenus {
      * menu is always there.
      */
     static List<Menu> load(Context ctx, List<String> configured) {
-        SharedPreferences prefs = prefs(ctx);
+        SharedPreferences prefs = Config.settings(ctx);
         List<Menu> saved = decode(prefs.getString(PREF_LIST, null));
         Set<String> removed = new HashSet<>(prefs.getStringSet(PREF_REMOVED, Collections.emptySet()));
         return merge(saved, configured, removed);
@@ -236,16 +236,16 @@ final class XmbMenus {
     }
 
     static void save(Context ctx, List<Menu> menus) {
-        prefs(ctx).edit().putString(PREF_LIST, encode(menus)).apply();
+        Config.settings(ctx).edit().putString(PREF_LIST, encode(menus)).apply();
     }
 
     /** Removes a menu of the owner's; its apps go back where they would be without it. */
     static void remove(Context ctx, List<Menu> menus, String key) {
         List<Menu> next = new ArrayList<>();
         for (Menu m : menus) if (!m.key.equals(key) || m.builtIn()) next.add(m);
-        Set<String> removed = new HashSet<>(prefs(ctx).getStringSet(PREF_REMOVED, Collections.emptySet()));
+        Set<String> removed = new HashSet<>(Config.settings(ctx).getStringSet(PREF_REMOVED, Collections.emptySet()));
         removed.add(key);
-        prefs(ctx).edit().putString(PREF_LIST, encode(next)).putStringSet(PREF_REMOVED, removed).apply();
+        Config.settings(ctx).edit().putString(PREF_LIST, encode(next)).putStringSet(PREF_REMOVED, removed).apply();
     }
 
     /** A key for a new menu: the preset's, or "menu2", "menu3"... */
@@ -254,9 +254,5 @@ final class XmbMenus {
         for (Menu m : menus) keys.add(m.key);
         if (wanted != null && !keys.contains(wanted)) return wanted;
         for (int i = 1; ; i++) if (!keys.contains("menu" + i)) return "menu" + i;
-    }
-
-    private static SharedPreferences prefs(Context ctx) {
-        return ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE);
     }
 }

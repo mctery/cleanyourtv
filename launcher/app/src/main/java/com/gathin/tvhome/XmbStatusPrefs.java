@@ -1,7 +1,6 @@
 package com.gathin.tvhome;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -210,15 +209,11 @@ final class XmbStatusPrefs {
     }
 
     static XmbStatusPrefs load(Context ctx, List<String> configured) {
-        XmbStatusPrefs saved = decode(prefs(ctx).getString(PREF, null));
+        XmbStatusPrefs saved = decode(Config.settings(ctx).getString(PREF, null));
         return saved != null ? saved : fromConfig(configured);
     }
 
     void save(Context ctx) {
-        prefs(ctx).edit().putString(PREF, encode()).apply();
-    }
-
-    private static SharedPreferences prefs(Context ctx) {
-        return ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE);
+        Config.settings(ctx).edit().putString(PREF, encode()).apply();
     }
 }

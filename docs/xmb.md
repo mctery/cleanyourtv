@@ -30,8 +30,8 @@ Unlike the main project's launcher, this branch asks for three more permissions,
 | Left, Right | Change category |
 | Up, Down | Move in the category |
 | OK | Open |
-| Hold OK, or Menu | Options: Open, Move to another category, App info |
-| Back | Closes the options |
+| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to another category, App info |
+| Back, Left | Closes the options (from Move, back to the options) |
 | Home | From an app: back to where you were. On the XMB: Video, first item |
 
 After 45 seconds without a key the menu fades out and only the wave stays. Any key brings it back.
@@ -47,7 +47,8 @@ Left of the clock, white icons with a soft glow, no frames. Always there, from t
 | Sky and degrees | The weather now (below) |
 
 Only while there is something to say, further left: a download arrow with its progress while an app installs,
-a USB drive, Bluetooth headphones or a speaker. Leftmost, in amber: the remote's battery under 20%, storage under
+a USB drive, Bluetooth headphones or a speaker. Leftmost, in amber: the remote's battery under 20% (a battery on its
+side in four blocks, as on the PSP and PS3), storage under
 500 MB, ADB still on (USB debugging, which on many boxes also opens ADB on the network), and the remote-button
 helper not running. For the last one Home first tries to fix it itself: 15 seconds after it starts, if the helper
 should run and does not, it turns accessibility off and on once (with `WRITE_SECURE_SETTINGS`, as

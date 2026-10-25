@@ -3,25 +3,15 @@ package com.gathin.tvhome;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.net.ConnectivityManager;
-import android.net.LinkAddress;
-import android.net.LinkProperties;
-import android.net.Network;
-import android.net.NetworkCapabilities;
 import android.net.Uri;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
-import android.os.Build;
 import android.provider.Settings;
 
-import java.net.Inet4Address;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -93,6 +83,8 @@ final class XmbCatalog {
         /** A white glyph to tint, or the app's own icon when it has neither banner nor glyph. */
         final Drawable icon;
         final boolean glyph;
+        /** The glyph's drawable resource (its glow is kept by it, XmbGlow); 0 for an app's own art. */
+        final int iconRes;
         /** The app, for app items; null for built-in ones. */
         final String pkg;
         /** What OK opens; null when {@link #action} runs instead. */
@@ -101,12 +93,23 @@ final class XmbCatalog {
 
         Item(String key, String title, String detail, Drawable banner, Drawable icon, boolean glyph, String pkg,
              Intent intent, String action) {
+            this(key, title, detail, banner, icon, 0, pkg, intent, action);
+        }
+
+        /** A built-in item drawn with a glyph. */
+        Item(String key, String title, String detail, Context ctx, int glyph, Intent intent, String action) {
+            this(key, title, detail, null, ctx.getDrawable(glyph), glyph, null, intent, action);
+        }
+
+        private Item(String key, String title, String detail, Drawable banner, Drawable icon, int iconRes, String pkg,
+                     Intent intent, String action) {
             this.key = key;
             this.title = title;
             this.detail = detail;
             this.banner = banner;
             this.icon = icon;
-            this.glyph = glyph;
+            this.glyph = iconRes != 0;
+            this.iconRes = iconRes;
             this.pkg = pkg;
             this.intent = intent;
             this.action = action;
@@ -202,21 +205,18 @@ final class XmbCatalog {
 
     /** The owner's moves from the options menu, as "package=category". */
     static List<String> moves(Context ctx) {
-        return new ArrayList<>(prefs(ctx).getStringSet(PREF_MOVES, Collections.emptySet()));
+        return new ArrayList<>(Config.settings(ctx).getStringSet(PREF_MOVES, Collections.emptySet()));
     }
 
     static void move(Context ctx, String pkg, String category) {
         Set<String> next = new LinkedHashSet<>();
-        for (String e : prefs(ctx).getStringSet(PREF_MOVES, Collections.emptySet())) {
+        for (String e : Config.settings(ctx).getStringSet(PREF_MOVES, Collections.emptySet())) {
             if (!e.startsWith(pkg + "=")) next.add(e);
         }
         next.add(pkg + "=" + category);
-        prefs(ctx).edit().putStringSet(PREF_MOVES, next).apply();
+        Config.settings(ctx).edit().putStringSet(PREF_MOVES, next).apply();
     }
 
-    private static SharedPreferences prefs(Context ctx) {
-        return ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE);
-    }
 
     static String label(Context ctx, String category) {
         switch (category) {
@@ -341,21 +341,20 @@ final class XmbCatalog {
         settings.add(builtIn(ctx, "sys:apps", R.string.xmb_apps, R.string.xmb_apps_detail,
                 R.drawable.ic_xmb_apps, settingsIntent(pm, settingsPkg, Settings.ACTION_APPLICATION_SETTINGS, Settings.ACTION_SETTINGS)));
         settings.add(new Item("sys:sounds", ctx.getString(state.soundsOn ? R.string.xmb_sounds_on : R.string.xmb_sounds_off),
-                ctx.getString(state.soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), null,
-                ctx.getDrawable(state.soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off), true, null, null,
-                ACTION_TOGGLE_SOUNDS));
+                ctx.getString(state.soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), ctx,
+                state.soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off, null, ACTION_TOGGLE_SOUNDS));
         int[] music = {R.string.xmb_bgm_off, R.string.xmb_bgm_low, R.string.xmb_bgm_mid, R.string.xmb_bgm_high};
         settings.add(new Item("sys:music", ctx.getString(music[state.musicAvailable ? state.musicLevel : 0]),
-                ctx.getString(state.musicAvailable ? R.string.xmb_bgm_detail : R.string.xmb_bgm_missing), null,
-                ctx.getDrawable(R.drawable.ic_xmb_library_music), true, null, null, ACTION_MUSIC));
-        settings.add(new Item("sys:color", ctx.getString(R.string.xmb_theme_color), state.colorName, null,
-                ctx.getDrawable(R.drawable.ic_xmb_palette), true, null, null, ACTION_COLOR));
-        settings.add(new Item("sys:menus", ctx.getString(R.string.xmb_menus), ctx.getString(R.string.xmb_menus_detail),
-                null, ctx.getDrawable(R.drawable.ic_xmb_dashboard_customize), true, null, null, ACTION_MENUS));
+                ctx.getString(state.musicAvailable ? R.string.xmb_bgm_detail : R.string.xmb_bgm_missing), ctx,
+                R.drawable.ic_xmb_library_music, null, ACTION_MUSIC));
+        settings.add(new Item("sys:color", ctx.getString(R.string.xmb_theme_color), state.colorName, ctx,
+                R.drawable.ic_xmb_palette, null, ACTION_COLOR));
+        settings.add(new Item("sys:menus", ctx.getString(R.string.xmb_menus), ctx.getString(R.string.xmb_menus_detail), ctx,
+                R.drawable.ic_xmb_dashboard_customize, null, ACTION_MENUS));
         settings.add(new Item("sys:status", ctx.getString(R.string.xmb_status_bar), ctx.getString(R.string.xmb_status_bar_detail),
-                null, ctx.getDrawable(R.drawable.ic_xmb_tune), true, null, null, ACTION_STATUS));
+                ctx, R.drawable.ic_xmb_tune, null, ACTION_STATUS));
         settings.add(new Item("sys:diagnostics", ctx.getString(R.string.xmb_diag), ctx.getString(R.string.xmb_diag_detail),
-                null, ctx.getDrawable(R.drawable.ic_xmb_monitor_heart), true, null, null, ACTION_DIAG));
+                ctx, R.drawable.ic_xmb_monitor_heart, null, ACTION_DIAG));
 
         addNetwork(ctx, pm, settingsPkg, byCat.get(NETWORK));
 
@@ -365,7 +364,7 @@ final class XmbCatalog {
             int icon = iconRes(m);
             if (items.isEmpty() && !m.builtIn()) {
                 items.add(new Item("sys:empty", ctx.getString(R.string.xmb_menu_empty),
-                        ctx.getString(R.string.xmb_menu_empty_detail), null, ctx.getDrawable(icon), true, null, null, null));
+                        ctx.getString(R.string.xmb_menu_empty_detail), ctx, icon, null, null));
             }
             if (!items.isEmpty()) out.add(new Category(m.key, label(ctx, m), ctx.getDrawable(icon), icon, items));
         }
@@ -390,8 +389,7 @@ final class XmbCatalog {
     }
 
     private static Item builtIn(Context ctx, String key, int title, int detail, int glyph, Intent intent) {
-        return new Item(key, ctx.getString(title), ctx.getString(detail), null, ctx.getDrawable(glyph), true, null,
-                intent, null);
+        return new Item(key, ctx.getString(title), ctx.getString(detail), ctx, glyph, intent, null);
     }
 
     /** The package that answers ACTION_SETTINGS (the TV's Settings app), or null. */
@@ -406,10 +404,8 @@ final class XmbCatalog {
      */
     static Intent settingsIntent(PackageManager pm, String settingsPkg, String action, String fallback) {
         Intent i = new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        if (settingsPkg != null) {
-            Intent pinned = new Intent(i).setPackage(settingsPkg);
-            if (pm.resolveActivity(pinned, 0) != null) return pinned;
-        }
+        Intent pinned = pinned(pm, settingsPkg, i);
+        if (pinned != null) return pinned;
         if (pm.resolveActivity(i, 0) != null || fallback == null) return i;
         return settingsIntent(pm, settingsPkg, fallback, null);
     }
@@ -419,62 +415,45 @@ final class XmbCatalog {
         PackageManager pm = ctx.getPackageManager();
         Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", pkg, null))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        String settingsPkg = settingsPackage(pm);
-        if (settingsPkg != null) {
-            Intent pinned = new Intent(i).setPackage(settingsPkg);
-            if (pm.resolveActivity(pinned, 0) != null) return pinned;
-        }
-        return i;
+        Intent pinned = pinned(pm, settingsPackage(pm), i);
+        return pinned != null ? pinned : i;
+    }
+
+    /** The intent sent to the TV's own Settings app, or null when that app does not answer it. */
+    private static Intent pinned(PackageManager pm, String settingsPkg, Intent i) {
+        if (settingsPkg == null) return null;
+        Intent pinned = new Intent(i).setPackage(settingsPkg);
+        return pm.resolveActivity(pinned, 0) != null ? pinned : null;
     }
 
     /** The connection (network name and address) and the Private DNS in use. */
     private static void addNetwork(Context ctx, PackageManager pm, String settingsPkg, List<Item> out) {
-        String title = ctx.getString(R.string.offline), detail = ctx.getString(R.string.xmb_not_connected);
-        String dns = null;
-        int glyph = R.drawable.ic_xmb_wifi_off;
-        try {
-            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
-            for (Network net : cm != null ? cm.getAllNetworks() : new Network[0]) {
-                NetworkCapabilities caps = cm.getNetworkCapabilities(net);
-                if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                        || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue;
-                LinkProperties lp = cm.getLinkProperties(net);
-                String ip = ipv4(lp);
-                detail = ip != null ? ctx.getString(R.string.xmb_connected, ip) : "";
-                if (lp != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && lp.isPrivateDnsActive()) {
-                    dns = lp.getPrivateDnsServerName();
-                }
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
-                    title = ctx.getString(R.string.ethernet);
-                    glyph = R.drawable.ic_xmb_lan;
-                    break;
-                }
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                    title = ctx.getString(R.string.wifi);
-                    glyph = R.drawable.ic_xmb_wifi;
-                    WifiManager wm = (WifiManager) ctx.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                    WifiInfo info = wm != null ? wm.getConnectionInfo() : null;
-                    String ssid = info != null ? info.getSSID() : null;
-                    if (ssid != null) {
-                        ssid = ssid.replace("\"", "").trim();
-                        if (!ssid.isEmpty() && !ssid.contains("unknown") && !ssid.equals("0x")) title = ssid;
-                    }
-                }
-            }
-        } catch (RuntimeException ignored) {
+        XmbNet net = XmbNet.read(ctx);
+        String title, detail = net.ip != null ? ctx.getString(R.string.xmb_connected, net.ip) : "";
+        int glyph;
+        switch (net.kind) {
+            case XmbNet.LAN:
+                title = ctx.getString(R.string.ethernet);
+                glyph = R.drawable.ic_xmb_lan;
+                break;
+            case XmbNet.WIFI:
+                title = net.ssid != null ? net.ssid : ctx.getString(R.string.wifi);
+                glyph = R.drawable.ic_xmb_wifi;
+                break;
+            case XmbNet.OTHER:
+                title = ctx.getString(R.string.xmb_cat_network);
+                glyph = R.drawable.ic_xmb_lan;
+                break;
+            default:
+                title = ctx.getString(R.string.offline);
+                detail = ctx.getString(R.string.xmb_not_connected);
+                glyph = R.drawable.ic_xmb_wifi_off;
+                break;
         }
         Intent wifi = settingsIntent(pm, settingsPkg, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS);
-        out.add(new Item("sys:network", title, detail, null, ctx.getDrawable(glyph), true, null, wifi, null));
+        out.add(new Item("sys:network", title, detail, ctx, glyph, wifi, null));
         out.add(new Item("sys:dns", ctx.getString(R.string.xmb_private_dns),
-                dns != null && !dns.isEmpty() ? dns : ctx.getString(R.string.xmb_private_dns_auto), null,
-                ctx.getDrawable(R.drawable.ic_xmb_dns), true, null, wifi, null));
-    }
-
-    private static String ipv4(LinkProperties lp) {
-        if (lp == null) return null;
-        for (LinkAddress a : lp.getLinkAddresses()) {
-            if (a.getAddress() instanceof Inet4Address) return a.getAddress().getHostAddress();
-        }
-        return null;
+                net.privateDns != null ? net.privateDns : ctx.getString(R.string.xmb_private_dns_auto), ctx,
+                R.drawable.ic_xmb_dns, wifi, null));
     }
 }

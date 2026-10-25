@@ -46,18 +46,9 @@ final class XmbMusic {
         this.ctx = ctx.getApplicationContext();
         this.handler = handler;
         audio = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
-        file = find(Config.dir(ctx));
-        level = ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE).getInt(PREF, DEFAULT_LEVEL);
+        file = XmbSounds.find(ctx, NAME, TYPES);
+        level = Config.settings(ctx).getInt(PREF, DEFAULT_LEVEL);
         if (level < 0 || level >= LEVELS.length) level = DEFAULT_LEVEL;
-    }
-
-    private static File find(File dir) {
-        if (dir == null) return null;
-        for (String type : TYPES) {
-            File f = new File(new File(dir, XmbSounds.DIR), NAME + type);
-            if (f.isFile() && f.length() > 0) return f;
-        }
-        return null;
     }
 
     boolean available() {
@@ -71,7 +62,7 @@ final class XmbMusic {
     /** The next level round (off, low, medium, high), saved. */
     void cycle() {
         level = (level + 1) % LEVELS.length;
-        ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE).edit().putInt(PREF, level).apply();
+        Config.settings(ctx).edit().putInt(PREF, level).apply();
         if (level == 0) {
             fadeTo(0f);
         } else if (wanted) {
