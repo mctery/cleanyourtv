@@ -225,6 +225,14 @@ public class XmbActivity extends Activity {
         ui.forceHasOverlappingRendering(false);
         ui.setClipChildren(false);
         root.addView(ui, new FrameLayout.LayoutParams(-1, -1));
+        // A speck that draws nothing in two opposite corners: what the window draws over the wave then always spans
+        // the whole screen. Android crops a window's layer to that area, and this box shows its 1080p picture at
+        // 97.5 % of a 4K output (its screen position), so the cropped layer was scaled with roundings of its own:
+        // every redraw, the colon's blink included, set the whole menu and status row about a pixel off for a frame.
+        for (int corner = 0; corner < 2; corner++) {
+            root.addView(new View(this), new FrameLayout.LayoutParams(1, 1,
+                    corner == 0 ? Gravity.TOP | Gravity.START : Gravity.BOTTOM | Gravity.END));
+        }
         buildChrome();
         setContentView(root);
         debugPanel = new TextView(this);
