@@ -343,6 +343,10 @@ public class XmbActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        // Home covers what is behind it. Started right after an update, Android 11 on the Mi Box S once took it for
+        // see-through (occludesParent false), so the last app stayed visible, drawn over Home and frozen, while the
+        // keys went to Home. Saying it again costs nothing when Android already knows.
+        if (android.os.Build.VERSION.SDK_INT >= 30) setTranslucent(false);
         // Only handed an intent (Home pressed on Home): the music, the wave and the status row never stopped.
         boolean brief = pausePending;
         pausePending = false;
