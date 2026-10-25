@@ -149,8 +149,8 @@ Close all apps closes every app listed, active ones included.
 Android shows an app only its own processes, so the list is what the activity manager reports
 (`dumpsys activity processes`, read in the background in about 0.1 s). That takes `DUMP` and `PACKAGE_USAGE_STATS`,
 which only ADB can grant: `adb shell pm grant com.gathin.tvhome android.permission.DUMP`, the same for
-`android.permission.PACKAGE_USAGE_STATS` (`mytv/install.sh` does both). Without them the item shows the free memory
-and says the list needs them.
+`android.permission.PACKAGE_USAGE_STATS` (the [README](../.github/README.md#install) has both in one line). Without
+them the item shows the free memory and says the list needs them.
 
 Closing is Force stop, as by hand. On the Mi Box S an ordinary app may end only its own processes
 (`killBackgroundProcesses` answers `Invalid packageName` for any other, as on Android 14), so the remote-button
