@@ -29,10 +29,13 @@ import android.os.SystemClock;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewGroupOverlay;
+import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -40,8 +43,11 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The XMB's status row, left of the clock: glowing white icons as on the PSP and PS3, no frames. From the clock
@@ -257,7 +263,9 @@ final class XmbStatus {
         if (!started) return;
         // Built aside first: when every item would look as it does now (a Wi-Fi signal event that changed nothing,
         // say), the row is left alone, so nothing on screen is laid out again.
-        List<View> views = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
+        Map<String, View> built = new HashMap<>();
+        Map<String, String> parts = new HashMap<>();
         StringBuilder sig = new StringBuilder();
         for (String key : setup.order) {
             String mode = setup.mode(key);
@@ -265,44 +273,129 @@ final class XmbStatus {
             part = null;
             View v = build(key, XmbStatusPrefs.ALWAYS.equals(mode));
             if (v == null) continue;
-            v.setTag(key);
-            views.add(v);
+            keys.add(key);
+            built.put(key, v);
+            parts.put(key, part);
             sig.append(key).append('=').append(part).append(';');
         }
         String now0 = sig.toString();
-        if (now0.equals(shownState) && row.getChildCount() == views.size()) return;
+        if (now0.equals(shownState) && row.getChildCount() == keys.size()) return;
         shownState = now0;
+
+        // Moves as on the PS3, never a jump: an item that goes fades out where it was, one that comes glows up, one
+        // that changes (Wi-Fi strength, the temperature, the dust's colour) cross-fades, and the others slide to
+        // their new places (FLIP: where each was is noted, the row laid out anew, each moved back and let go).
+        boolean flip = animate && row.isAttachedToWindow() && row.isLaidOut() && !onRow.isEmpty();
+        Map<String, Integer> before = new HashMap<>();
+        if (flip) for (Map.Entry<String, View> e : onRow.entrySet()) before.put(e.getKey(), xInWindow(e.getValue()));
+        ViewGroupOverlay overlay = flip ? ((ViewGroup) row.getRootView()).getOverlay() : null;
+        Map<String, View> next = new LinkedHashMap<>();
+        List<View> coming = new ArrayList<>(), changing = new ArrayList<>();
+        for (String key : keys) {
+            View old = onRow.get(key), v = built.get(key);
+            if (old != null && TextUtils.equals(partOf.get(key), parts.get(key))) {
+                v = old;   // as it was: the same view stays
+            } else if (old != null && old != v) {
+                leave(overlay, old, false);
+                changing.add(v);
+            } else if (old == null) {
+                coming.add(v);
+            }
+            next.put(key, v);
+        }
+        for (Map.Entry<String, View> e : onRow.entrySet()) {
+            if (!next.containsKey(e.getKey())) leave(overlay, e.getValue(), true);
+        }
         row.removeAllViews();
-        java.util.Set<String> now = new java.util.HashSet<>();
         int lastKind = -1;
-        for (View v : views) {
-            String key = (String) v.getTag();
-            if (v.getParent() != null) ((ViewGroup) v.getParent()).removeView(v);
-            int kind = XmbStatusPrefs.item(key).kind;
+        for (Map.Entry<String, View> e : next.entrySet()) {
+            View v = e.getValue();
+            if (v.getParent() != null) {
+                // Still fading out from an earlier refresh (the download item, back again): take it as it is.
+                v.animate().cancel();
+                ((ViewGroup) v.getParent()).removeView(v);
+                v.setAlpha(1f);
+                v.setScaleX(1f);
+                v.setScaleY(1f);
+            }
+            int kind = XmbStatusPrefs.item(e.getKey()).kind;
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
             // From the item's own base (an icon is pulled in by its glow's padding, a pair is not), never added on top
             // of an earlier refresh's gap: the download item is reused.
             lp.leftMargin = (v instanceof ImageView ? -u.px(PAD) : 0) + (lastKind >= 0 ? u.px(kind == lastKind ? GAP : GROUP_GAP) : 0);
             row.addView(v, lp);
             lastKind = kind;
-            now.add(key);
-            // Something new to say glows up instead of popping in.
-            if (!shown.isEmpty() && !shown.contains(key) && animate) {
-                v.setAlpha(0f);
-                v.setScaleX(0.7f);
-                v.setScaleY(0.7f);
-                v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(420).start();
-            }
         }
+        if (flip) {
+            row.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+                @Override
+                public boolean onPreDraw() {
+                    row.getViewTreeObserver().removeOnPreDrawListener(this);
+                    for (Map.Entry<String, View> e : next.entrySet()) {
+                        View v = e.getValue();
+                        if (coming.contains(v)) {
+                            v.setAlpha(0f);
+                            v.setScaleX(0.7f);
+                            v.setScaleY(0.7f);
+                            v.animate().alpha(1f).scaleX(1f).scaleY(1f).translationX(0f).setStartDelay(0)
+                                    .setDuration(XmbStyle.COME_MS).setInterpolator(EASE).start();
+                        } else if (changing.contains(v)) {
+                            v.setAlpha(0f);
+                            v.animate().alpha(1f).translationX(0f).setStartDelay(0).setDuration(XmbStyle.CHANGE_IN_MS + XmbStyle.CHANGE_OUT_MS)
+                                    .setInterpolator(EASE).start();
+                        } else {
+                            Integer was = before.get(e.getKey());
+                            if (was == null) continue;
+                            float dx = was - (xInWindow(v) - v.getTranslationX());
+                            if (Math.abs(dx) < 1f) continue;
+                            v.setTranslationX(dx);
+                            v.animate().translationX(0f).setStartDelay(0).setDuration(XmbStyle.SHIFT_MS)
+                                    .setInterpolator(EASE).start();
+                        }
+                    }
+                    return true;
+                }
+            });
+        }
+        Set<String> now = new HashSet<>(next.keySet());
         if (!now.contains("download") && downloadAnim != null) downloadAnim.cancel();
         if (!now.equals(shown)) {
-            java.util.Set<String> gone = new java.util.HashSet<>(shown), added = new java.util.HashSet<>(now);
+            Set<String> gone = new HashSet<>(shown), added = new HashSet<>(now);
             gone.removeAll(now);
             added.removeAll(shown);
             if (!shown.isEmpty()) XmbDebug.log("status row: +" + added + " -" + gone);
         }
         shown.clear();
         shown.addAll(now);
+        onRow.clear();
+        onRow.putAll(next);
+        partOf.clear();
+        partOf.putAll(parts);
+    }
+
+    /** The items on the row by key, in order, and what each showed: kept, changed, new and gone are told apart. */
+    private final Map<String, View> onRow = new LinkedHashMap<>();
+    private final Map<String, String> partOf = new HashMap<>();
+    private static final android.view.animation.PathInterpolator EASE =
+            new android.view.animation.PathInterpolator(0.16f, 1f, 0.3f, 1f);
+
+    /** An item leaving the row: it fades out where it is, above the row (overlay null: it just goes). */
+    private void leave(ViewGroupOverlay overlay, View v, boolean gone) {
+        if (overlay == null || v.getParent() == null) return;
+        overlay.add(v);   // moved out of the row, kept where it is on screen
+        v.animate().alpha(0f).scaleX(gone ? 0.7f : 1f).scaleY(gone ? 0.7f : 1f).setStartDelay(0).setDuration(XmbStyle.GO_MS).setInterpolator(EASE).withEndAction(() -> {
+                    overlay.remove(v);
+                    v.setAlpha(1f);
+                    v.setScaleX(1f);
+                    v.setScaleY(1f);
+                    v.setTranslationX(0f);
+                }).start();
+    }
+
+    private static int xInWindow(View v) {
+        int[] at = new int[2];
+        v.getLocationInWindow(at);
+        return at[0];
     }
 
     /** What the item being built shows, for the row's signature (set by build). */
@@ -446,7 +539,7 @@ final class XmbStatus {
         return best;
     }
 
-    private final java.util.Set<String> shown = new java.util.HashSet<>();
+    private final Set<String> shown = new HashSet<>();
     private boolean animate = true;
 
     /** The warnings' thresholds: the remote's battery in percent, free storage in megabytes. */

@@ -40,15 +40,32 @@ theme; `0` keeps it up). Any key brings it back.
 
 ## Boot animation
 
-When the TV is turned on, Home plays a boot animation drawn with the wave itself, about six seconds: black, then
-the wave's lines drawn in white from the left edge to the right with the start-up sound, a brighter head and
-sparkles left behind, then its colour spreading from the middle band out to the top and bottom while the lines
-settle into the wave as it always is, then the menu coming in. Meanwhile Home makes ready what the menu shows (the
-glow behind every item, every banner handed to the GPU), so the first moves are as smooth as any later. A key
-during it brings the menu at once. It plays when the box starts and when it wakes from standby after half a minute
+When the TV is turned on, Home plays a boot animation drawn with the wave itself, about five seconds (at 60 frames a
+second while the lines travel, with every other row of the wave so the GPU keeps up; at 30 for the slow parts): black, then the wave's lines drawn in white from the left edge to the right with the start-up sound, each
+row of the wave a little behind the next so the front is a soft fan rather than a wipe, every head carrying its own
+light and leaving a trail that cools and sparkles behind it, the lines starting gently and gliding to a stop; a swell
+of light as they meet the right edge; the colour rising out of the middle band to the top and bottom through a wide
+soft edge while the last lines arrive, the lines settling into the wave as it always is; the menu coming in over the
+colour, the categories one after another from the selected one, the column's rows cascading. Meanwhile Home makes
+ready what the menu shows (the glow behind every item, every banner handed to the GPU), so the first moves are as
+smooth as any later. A key during it brings the menu at once. It plays when the box starts and when it wakes from standby after half a minute
 or more with Home in front (`xmb_boot_animation`: `power`, the default; `boot` for a start of the box only; `off`).
 It follows the box's own boot logo, which only a rooted box could change. Settings > Diagnostics > Play the
 start-up animation shows it at any time.
+
+## Motion
+
+Nothing on screen jumps. Moves take 240 ms with KittiwanaNotify's easing. In the status row an item that comes glows
+up, one that goes fades out where it stood, one that changes (the Wi-Fi strength, the temperature, the dust's
+colour) cross-fades, and the others slide to their new places. On the cross-bar a setting's value, a menu's name or
+icon cross-fades where it is; an app installed, removed or moved and a menu added, removed or moved slide the
+categories and rows that stay to their new places while new ones come in and the others fade out. The side list's
+entries fade out when it closes or changes level, slide when one is carried, and cross-fade when a value changes; the
+name prompt and the colour picker fade in and out. The wave drifts into a new colour (the hour's or the month's) over
+a few seconds instead of switching, and follows quickly while a colour is being picked. The menu and the side list
+draw at the display's 60 frames a second (measured on the Mi Box S while moving: 98 to 100% of frames on time); the
+wave at 30, a slow drift, in a GL context of low GPU priority so the menu's frames go first. Settings > Diagnostics
+can make the wave 60: smoother, twice the GPU's work, and on the Mi Box S a few more late frames in the menu.
 
 ## Status row
 
@@ -96,7 +113,8 @@ service measured itself. Home going behind an app stops it.
 
 ## Diagnostics
 
-Settings > Diagnostics plays the boot animation, records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
+Settings > Diagnostics plays the boot animation, switches the wave between 30 and 60 frames a second (60 is smoother
+and twice the GPU's work; `xmb_wave_fps` sets where it starts), records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
 the status row; the video goes to `Movies/XMB`, 1280x720) and switches on an event panel: the wave's frame rate and
 the latest of what changed the screen (a rebuild of the cross-bar and why and how long the load took, an icon added
 to or gone from the row, focus and screensaver changes, wave frames that came late). Its first line is the wave's cost:

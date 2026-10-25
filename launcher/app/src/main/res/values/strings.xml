@@ -268,5 +268,7 @@
     <string name="xmb_diag_record_failed">Could not record the screen</string>
     <string name="xmb_diag_panel_on">Event panel: on</string>
     <string name="xmb_diag_panel_off">Event panel: off</string>
+    <string name="xmb_diag_wave30">Wave: 30 frames a second</string>
+    <string name="xmb_diag_wave60">Wave: 60 frames a second</string>
     <string name="xmb_diag_boot">Play the start-up animation</string>
 </resources>

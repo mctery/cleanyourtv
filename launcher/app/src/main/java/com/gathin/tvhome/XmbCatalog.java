@@ -254,6 +254,20 @@ final class XmbCatalog {
         return sb.toString();
     }
 
+    /**
+     * The categories and their items by key only: two loads with the same structure differ only in what items say
+     * (a setting's value, a menu's name or icon), which Home changes in place instead of building anew.
+     */
+    static String structure(List<Category> cats) {
+        StringBuilder sb = new StringBuilder();
+        for (Category c : cats) {
+            sb.append(c.key).append('\n');
+            for (Item i : c.items) sb.append(' ').append(i.key).append('|').append(i.banner != null).append('|')
+                    .append(i.glyph).append('\n');
+        }
+        return sb.toString();
+    }
+
     /** Built-in actions run by XmbActivity. */
     static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds", ACTION_MUSIC = "music", ACTION_COLOR = "color",
             ACTION_MENUS = "menus", ACTION_STATUS = "status", ACTION_DIAG = "diagnostics", ACTION_SPEEDTEST = "speedtest";

@@ -47,6 +47,7 @@ is ignored, and a file that doesn't parse is ignored as a whole, so a theme can 
 | `xmb_color` | `"month"`, `"month1"` to `"month12"` or `"#RRGGBB"` | XMB home only: the wave's colour; a colour picked on the TV wins until this value changes |
 | `xmb_status` | list of `"key=mode"` | XMB home only: the status row by the clock, left to right; modes `always`, `auto` (only when there is something to say) or `hidden`; keys `recording`, `battery`, `storage`, `adb`, `helper`, `download`, `usb`, `audio`, `temperature`, `weather`, `air` (PM2.5), `speed`, `network`, `palette`; a setup made on the TV wins |
 | `xmb_boot_animation` | `"power"`, `"boot"` or `"off"` | XMB home only: the boot animation drawn with the wave when the TV is turned on: when the box starts and when it wakes from standby (`power`, the default), only when it starts, or never |
+| `xmb_wave_fps` | `30` or `60` | XMB home only: the wave's frames a second (default `30`; `60` is smoother and twice the GPU's work); Settings > Diagnostics switches it on the TV |
 | `xmb_idle_seconds` | number, 0 to 3600 | XMB home only: seconds without a key before the menu fades out to the wave; `0` keeps it up (default `45`) |
 | `xmb_low_battery` | number, 0 to 100 | XMB home only: the remote's battery is an amber warning under this percentage (default `20`) |
 | `xmb_low_storage_mb` | number | XMB home only: free storage is an amber warning under this many megabytes (default `500`) |
