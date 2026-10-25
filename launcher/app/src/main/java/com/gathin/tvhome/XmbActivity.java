@@ -1967,6 +1967,8 @@ public class XmbActivity extends Activity {
 
     /** Settings' lists stand at SIDE_X; an item's options closer, at MENU_X, beside its title (the PSP's). */
     private static final float SIDE_X = 1400, MENU_X = 1180, SIDE_STEP = 64, SIDE_ICON = 44;
+    /** A list's widest entry ends by the clock's right edge, moving the list left as far as SIDE_MIN_X if need be. */
+    private static final float SIDE_RIGHT = 1920 - 96, SIDE_MIN_X = 1000;
     /** Marks an entry's icon that is an app's own, not tinted. */
     private static final Object SIDE_ART = new Object();
 
@@ -2046,7 +2048,10 @@ public class XmbActivity extends Activity {
                 else sideAway(e, quiet ? 0f : -SIDE_FROM / 2);
             }
         }
-        sideX = x;
+        // Within one level (a value changed) the list never moves right and moves left smoothly: values of other
+        // lengths must not make it jitter.
+        float wasX = sideX, fitted = fitSide(texts, icons, art, x);
+        sideX = quiet && wasShowing ? Math.min(wasX, fitted) : fitted;
         sideDims = dim;
         side.removeAllViews();
         sideViews.clear();
@@ -2080,7 +2085,9 @@ public class XmbActivity extends Activity {
                 if (icon != 0 || picture != null) lp.leftMargin = px(18);
                 e.addView(tv, lp);
             }
-            side.addView(e, new FrameLayout.LayoutParams(px(1920 - sideX - 40), px(SIDE_STEP)));
+            // Text too long even then fades at the clock's right edge, selected (larger) or not.
+            float lead = t == null ? 0 : sideLead(icon, picture);
+            side.addView(e, new FrameLayout.LayoutParams(px(lead + (SIDE_RIGHT - sideX - lead) / SIDE_TEXT_ZOOM), px(SIDE_STEP)));
             e.setX(px(sideX));
             sideViews.add(e);
         }
@@ -2098,9 +2105,11 @@ public class XmbActivity extends Activity {
                 Float was = wasY.get(sideKey(texts.get(i), i));
                 float to = e.getAlpha(), y = e.getY();
                 if (was != null) {
-                    if (Math.abs(was - y) < 1f) continue;
+                    if (Math.abs(was - y) < 1f && sideX == wasX) continue;
                     e.setY(was);
-                    e.animate().y(y).setStartDelay(0).setDuration(SIDE_STEP_MS).setInterpolator(ease).start();
+                    e.setTranslationX(px(wasX));
+                    e.animate().y(y).translationX(px(sideX)).setStartDelay(0).setDuration(SIDE_STEP_MS).setInterpolator(ease)
+                            .start();
                 } else if (wasShowing) {
                     e.setAlpha(0f);
                     e.animate().alpha(to).setStartDelay(CHANGE_OUT_MS).setDuration(CHANGE_IN_MS).setInterpolator(ease)
@@ -2119,6 +2128,29 @@ public class XmbActivity extends Activity {
             }
         }
         handler.removeCallbacks(goIdle);
+    }
+
+    /** The room before an entry's text: its icon and the gap after it, or none. */
+    private static float sideLead(int icon, Drawable art) {
+        return icon != 0 || art != null ? SIDE_ICON + 18 : 0;
+    }
+
+    /**
+     * Where a list stands: at x, or further left when its widest entry, selected (larger, in the medium face), would
+     * end past the clock's right edge (English runs longer than Thai); never left of SIDE_MIN_X.
+     */
+    private float fitSide(List<String> texts, List<Integer> icons, List<Drawable> art, float x) {
+        Paint p = new Paint();
+        p.setTypeface(medium);
+        p.setTextSize(px(30));
+        float widest = 0;
+        for (int i = 0; i < texts.size(); i++) {
+            String t = texts.get(i);
+            if (t == null) continue;
+            float lead = sideLead(icons.get(i), art != null ? art.get(i) : null);
+            widest = Math.max(widest, lead + p.measureText(t) / s * SIDE_TEXT_ZOOM);
+        }
+        return Math.max(SIDE_MIN_X, Math.min(x, SIDE_RIGHT - widest));
     }
 
     /** An entry's identity across a quiet rebuild: its text, or for an icon alone its place. */
@@ -2175,12 +2207,12 @@ public class XmbActivity extends Activity {
                 t.setShadowLayer(sel ? px(10) : 0, 0, 0, sel ? TEXT_GLOW : 0);
                 t.setPivotX(0f);
                 t.setPivotY(t.getPaint().getFontMetricsInt(null) / 2f);   // its own line's middle
-                scale = sel ? 1.1f : 1f;
+                scale = sel ? SIDE_TEXT_ZOOM : 1f;
             } else if (c instanceof ImageView) {
                 // An app's own icon keeps its colours, a little dimmer when not selected; a glyph is tinted.
                 if (c.getTag() == SIDE_ART) c.setAlpha(sel ? 1f : SIDE_ART_DIM);
                 else ((ImageView) c).setImageTintList(tint(sel ? Color.WHITE : INK_DIM));
-                scale = sel ? 1.15f : 1f;
+                scale = sel ? SIDE_ICON_ZOOM : 1f;
             } else {
                 continue;
             }
