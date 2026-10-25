@@ -33,7 +33,7 @@ TVs that still let an app close another. Granted only over ADB (`mytv/install.sh
 | Left, Right | Change category |
 | Up, Down | Move in the category |
 | OK | Open |
-| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to category, App info, and Close for a running app |
+| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to category, Reorder, App info, and Close for a running app |
 | Back, Left | Closes the options (from Move, back to the options) |
 | Home | From an app: back to where you were. On the XMB: Video, first item |
 
@@ -196,7 +196,9 @@ on, and it loops without a gap.
 TV apps go in Video, Music or Apps: known streaming and music apps by package name (`xmb_video_apps` and
 `xmb_music_apps` in `config.xml`, which a theme can replace), then the app's own `android:appCategory`, else Apps.
 The ready-made menus of your own (Games, Tools, Social...) collect apps by name the same way (`xmb_menu_apps`,
-`"tools:com.android.vending"`) and by their own category. Move an app with **Hold OK > Move to category**, or list it in
+`"tools:com.android.vending"`) and by their own category. **Hold OK > Reorder** picks an app up: Up and Down carry it through its category (it stays under the bar, its title in
+the theme colour), OK or Back puts it down. That category's order is kept (the tile grid's `order.txt`); one put back
+as it was sorts by name again, in the TV's language. Move an app with **Hold OK > Move to category**, or list it in
 `xmb_categories` in `config.xml` or a theme's `config.json`: `"xmb_categories": ["com.example.tv=video"]`
 (`video`, `music` or `apps`; a move made on the TV wins). Inside a category the order is the tile grid's:
 `dock_apps`, then by name (an order saved earlier with the grid's Reorder counts until `dock_apps` changes).

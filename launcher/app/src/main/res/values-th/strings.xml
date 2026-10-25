@@ -111,6 +111,9 @@
     <string name="xmb_join">%1$s %2$s</string>
     <string name="xmb_open">เปิด</string>
     <string name="xmb_move">ย้ายหมวดหมู่</string>
+    <string name="xmb_reorder">ย้ายตำแหน่ง</string>
+    <string name="xmb_reorder_hint">กดขึ้นหรือลงเพื่อย้าย แล้วกด OK เพื่อวาง</string>
+    <string name="xmb_reorder_failed">บันทึกลำดับไม่สำเร็จ</string>
     <string name="xmb_app_info">ข้อมูลแอป</string>
     <string name="xmb_moved">ย้าย %1$s ไปยัง %2$s แล้ว</string>
     <string name="xmb_bgm_off">เพลงพื้นหลัง: ปิด</string>

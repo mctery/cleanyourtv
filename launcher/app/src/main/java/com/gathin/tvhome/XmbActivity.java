@@ -385,6 +385,7 @@ public class XmbActivity extends Activity {
 
     @Override
     protected void onPause() {
+        putDown();
         resumed = false;
         preloading = 0;
         closeSide(true);
@@ -508,6 +509,7 @@ public class XmbActivity extends Activity {
         // returnDue (set by onStart) tells the two apart.
         if (stopped || returnDue || introDue || intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         XmbDebug.log(R.string.xmb_log_home_on_home);
+        putDown();
         if (booting) {
             skipBoot();   // as any key does
             return;
@@ -824,6 +826,10 @@ public class XmbActivity extends Activity {
     // ---- content ---------------------------------------------------------------------------------------------
 
     private void reload() {
+        if (carrying != null) {
+            dirty = true;   // after the app is put down: a rebuild now would drop it mid-move
+            return;
+        }
         long t0 = SystemClock.uptimeMillis();
         dirty = false;
         if (cat >= 0 && cat < cats.size()) selectedCat = cats.get(cat).key;
@@ -1302,9 +1308,11 @@ public class XmbActivity extends Activity {
                         tint(isSel ? Color.WHITE : INK_FAINT));
             }
             r.title.setTypeface(isSel ? medium : regular);
-            r.title.setTextColor(isSel ? INK : INK_FAINT);
+            // Being carried (Reorder): its title in the accent colour, the keys' hint as its line.
+            boolean carried = isSel && r.item.key.equals(carrying);
+            r.title.setTextColor(carried ? 0xFF000000 | XmbAccent.floor(accentUi) : isSel ? INK : INK_FAINT);
             animate(r.title, 1f, isSel ? 1f : ROW_TITLE, instant);
-            boolean showDetail = isSel && !TextUtils.isEmpty(r.item.detail);
+            boolean showDetail = isSel && (carried || !TextUtils.isEmpty(r.item.detail));
             boolean wasShown = r.detail.getVisibility() == View.VISIBLE;
             // The title is centred with its detail line: as the line comes or goes the title glides to its new
             // place instead of jumping there.
@@ -1391,6 +1399,7 @@ public class XmbActivity extends Activity {
             return true;
         }
         wake(false);
+        if (carrying != null) return carryKey(keyCode, event);
         if (keyCode == KeyEvent.KEYCODE_BACK) return super.onKeyDown(keyCode, event);
         if (promptVisible()) return super.onKeyDown(keyCode, event);
         if (adjusting) return adjustKey(keyCode, event);
@@ -1913,6 +1922,11 @@ public class XmbActivity extends Activity {
             icons.add(R.drawable.ic_xmb_drive_file_move);
             int move = texts.size() - 1;
             actions.add(() -> showMoveTargets(item, move));
+            if (appsInColumn() > 1) {
+                texts.add(getString(R.string.xmb_reorder));
+                icons.add(R.drawable.ic_xmb_swap_vert);
+                actions.add(() -> startCarry(item));
+            }
             texts.add(getString(R.string.xmb_app_info));
             icons.add(R.drawable.ic_xmb_info);
             actions.add(() -> {
@@ -1946,6 +1960,105 @@ public class XmbActivity extends Activity {
         }
         showSide(texts, icons, focus, i -> actions.get(i).run(), null, MENU_X, false);
         optionsFor = item.key;
+    }
+
+    // ---- reorder: an app carried up and down its category ---------------------------------------------------------
+
+    /** The app being carried (Reorder), by key; null when none is. */
+    private String carrying;
+
+    /** The apps in the column on screen. */
+    private int appsInColumn() {
+        int n = 0;
+        for (Row r : rows) if (r.item.pkg != null) n++;
+        return n;
+    }
+
+    /** Options > Reorder: the app is picked up; Up and Down carry it through its category, OK puts it down. */
+    private void startCarry(XmbCatalog.Item item) {
+        closeSide(true);
+        carrying = item.key;
+        Row r = selectedRow();
+        setNow(r.detail, getString(R.string.xmb_reorder_hint));
+        layoutColumn(false);
+        handler.removeCallbacks(goIdle);
+    }
+
+    private boolean carryKey(int keyCode, KeyEvent event) {
+        keyRepeat = event.getRepeatCount();
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                carryBy(-1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                carryBy(1);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return true;   // it stays in its category
+            default:   // OK, Back or Menu puts it down
+                if (keyRepeat == 0) {
+                    sounds.play(XmbSounds.CONFIRM);
+                    putDown();
+                    swallowUntilUp = keyCode;
+                }
+                return true;
+        }
+    }
+
+    /** One place up or down: it stays under the bar and the app it passes moves to its other side. */
+    private void carryBy(int by) {
+        List<XmbCatalog.Item> items = cats.get(cat).items;
+        int at = selectedIndex(), to = at + by;
+        if (to < 0 || to >= items.size() || items.get(to).pkg == null) {
+            nudgeColumn(-by);
+            return;
+        }
+        Collections.swap(items, at, to);
+        Collections.swap(rows, at, to);
+        // What is on screen is the new order: a reload that brings the saved order changes nothing.
+        shownSignature = XmbCatalog.signature(cats);
+        shownStructure = XmbCatalog.structure(cats);
+        layoutColumn(false);
+        sounds.play(by > 0 ? XmbSounds.CURSOR_DOWN : XmbSounds.CURSOR);
+    }
+
+    /** The carried app put down where it is: the order saved, its line as before. */
+    private void putDown() {
+        if (carrying == null) return;
+        String key = carrying;
+        carrying = null;
+        saveOrder();
+        for (Row r : rows) if (r.item.key.equals(key)) setNow(r.detail, r.item.detail);
+        layoutColumn(false);
+        if (resumed) wake(false);
+        if (dirty && resumed) reload();
+    }
+
+    /** The categories whose order the owner set: only theirs is saved, the others keep sorting by name. */
+    private static final String PREF_REORDERED = "xmb_reordered";
+
+    /**
+     * The carried app's category as it stands now, kept for the next load (Order, as the tile grid keeps it), with
+     * the other categories the owner reordered; a category put back in its own order is let go, so it sorts by name
+     * again (in the TV's language).
+     */
+    private void saveOrder() {
+        if (cat < 0 || cat >= cats.size()) return;
+        XmbCatalog.Category here = cats.get(cat);
+        java.util.Set<String> reordered = new java.util.HashSet<>(
+                prefs().getStringSet(PREF_REORDERED, Collections.emptySet()));
+        if (XmbCatalog.inDefaultOrder(here.items, cfg.dockApps)) reordered.remove(here.key);
+        else reordered.add(here.key);
+        List<String> keys = new ArrayList<>();
+        for (XmbCatalog.Category c : cats) {
+            if (!reordered.contains(c.key)) continue;
+            for (XmbCatalog.Item i : c.items) if (i.pkg != null && !keys.contains(i.key)) keys.add(i.key);
+        }
+        prefs().edit().putStringSet(PREF_REORDERED, reordered).apply();
+        if (!Order.save(Order.file(this), new Order(Order.dockKey(cfg.dockApps), keys))) {
+            showToast(getString(R.string.xmb_reorder_failed));
+        }
     }
 
     /** Move: the menus that hold apps, but the one the app is in; Back returns to the options. */
@@ -2053,7 +2166,7 @@ public class XmbActivity extends Activity {
 
     /** The side list, the colour picker or the name prompt is open: Home does not fade to the wave meanwhile. */
     private boolean pickerOpen() {
-        return sideVisible() || adjusting || promptVisible();
+        return sideVisible() || adjusting || promptVisible() || carrying != null;
     }
 
     /** Opens a level of a Settings list: one entry per text (null for an icon alone) with its icon (0 for none). */

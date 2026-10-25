@@ -323,6 +323,23 @@ final class XmbCatalog {
         return APPS;
     }
 
+    /** The order a category has without the owner's own: dock_apps first, in their order, then by name. */
+    static int defaultCompare(List<String> dockApps, Item a, Item b) {
+        int fa = dockApps.indexOf(a.pkg), fb = dockApps.indexOf(b.pkg);
+        if (fa >= 0 || fb >= 0) {
+            if (fa < 0) return 1;
+            if (fb < 0) return -1;
+            return Integer.compare(fa, fb);
+        }
+        return a.title.compareToIgnoreCase(b.title);
+    }
+
+    /** The items stand as they would without an order of the owner's (Reorder put back where they were). */
+    static boolean inDefaultOrder(List<Item> items, List<String> dockApps) {
+        for (int i = 1; i < items.size(); i++) if (defaultCompare(dockApps, items.get(i - 1), items.get(i)) > 0) return false;
+        return true;
+    }
+
     /** The owner's moves from the options menu, as "package=category". */
     static List<String> moves(Context ctx) {
         return new ArrayList<>(Config.settings(ctx).getStringSet(PREF_MOVES, Collections.emptySet()));
@@ -409,14 +426,7 @@ final class XmbCatalog {
             if (!m.holdsApps()) continue;
             Collections.sort(byCat.get(m.key), (a, b) -> {
                 int saved = Order.compare(ranks, a.key, b.key);
-                if (saved != 0) return saved;
-                int fa = cfg.dockApps.indexOf(a.pkg), fb = cfg.dockApps.indexOf(b.pkg);
-                if (fa >= 0 || fb >= 0) {
-                    if (fa < 0) return 1;
-                    if (fb < 0) return -1;
-                    return Integer.compare(fa, fb);
-                }
-                return a.title.compareToIgnoreCase(b.title);
+                return saved != 0 ? saved : defaultCompare(cfg.dockApps, a, b);
             });
         }
 

@@ -198,6 +198,9 @@
     <string name="xmb_join">%1$s, %2$s</string>
     <string name="xmb_open">Open</string>
     <string name="xmb_move">Move to category</string>
+    <string name="xmb_reorder">Reorder</string>
+    <string name="xmb_reorder_hint">Up or Down to move, OK to place</string>
+    <string name="xmb_reorder_failed">Could not save the order</string>
     <string name="xmb_app_info">App info</string>
     <!-- %1$s: the app, %2$s: the category it went to. -->
     <string name="xmb_moved">Moved %1$s to %2$s</string>

@@ -8,6 +8,8 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class XmbCatalogTest {
     private static final XmbCatalog.Known KNOWN = ShippedConfig.known();
@@ -54,5 +56,19 @@ public class XmbCatalogTest {
         assertEquals(XmbCatalog.APPS, XmbCatalog.categoryFor("com.netflix.ninja", -1, Collections.<String>emptyList(), theirs));
         assertEquals("tools", XmbCatalog.categoryFor("com.example.files", -1, false, Collections.<String>emptyList(),
                 Collections.singletonList("tools"), theirs));
+    }
+
+    private static XmbCatalog.Item app(String pkg, String title) {
+        return new XmbCatalog.Item(pkg + "/.Main", title, "", null, null, false, pkg, null, null);
+    }
+
+    @Test public void defaultOrderIsTheDockThenTheName() {
+        java.util.List<String> dock = Arrays.asList("com.example.tube");
+        // dock_apps first, then by name whatever the case.
+        assertTrue(XmbCatalog.inDefaultOrder(Arrays.asList(app("com.example.tube", "Tube"), app("b", "apple"),
+                app("c", "Banana")), dock));
+        // An app the owner carried up out of the name order: an order of the owner's, to keep.
+        assertFalse(XmbCatalog.inDefaultOrder(Arrays.asList(app("c", "Banana"), app("b", "apple")), dock));
+        assertFalse(XmbCatalog.inDefaultOrder(Arrays.asList(app("b", "apple"), app("com.example.tube", "Tube")), dock));
     }
 }
