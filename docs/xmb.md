@@ -8,6 +8,19 @@ Behind it runs the PS3 wave in a colour that changes every month and dims at nig
 Tested on a Xiaomi Mi Box S 2nd gen (MiTV-AFKR0, Google TV 11, Mali-G31). It needs OpenGL ES 3.0 for the wave;
 without it the menu works over a plain black background.
 
+## Screenshots
+
+From the Mi Box S itself (`screencap`), scaled to 1280x720.
+
+| | |
+|---|---|
+| <img src="xmb/home.jpg" alt="Video: the first app under the bar, the others below, the wave behind"> | <img src="xmb/music.jpg" alt="Music: SoundCloud, Spotify and YouTube Music"> |
+| **Home.** Categories across, the selected one's apps down, the PS3 wave behind. | **Music.** Each category keeps the app you were last on. |
+| <img src="xmb/running-apps.jpg" alt="Settings, Running apps: each app left running with the memory it holds"> | <img src="xmb/closing.jpg" alt="The screen dimmed under the words Closing Play Store"> |
+| **Settings > Running apps.** Every app left running and its memory; OK closes it. | **Closing an app.** The screen dims under its name while Settings presses Force stop. |
+| <img src="xmb/theme-colour.jpg" alt="Settings, Theme colour: the colour names in a list beside the item"> | <img src="xmb/status-row.jpg" alt="The status row with the network speed at its left end"> |
+| **Theme colour.** A colour for each month, a fixed one, or your own. | **Status row.** The network speed comes in at the far left while the box downloads. |
+
 ## The only Home
 
 The XMB answers HOME through the `XmbHome` alias. The tile grid (`MainActivity`) is still in the code, so changes
@@ -22,8 +35,8 @@ The order of the apps is still `dock_apps` from `config.xml` or a theme.
 Unlike the main project's launcher, this branch asks for more permissions. Granted at install: `INTERNET` for the
 weather and the speed test, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote battery icons,
 `QUERY_ALL_PACKAGES` to see an app Play Store is still downloading, and `KILL_BACKGROUND_PROCESSES` for Running apps on
-TVs that still let an app close another. Granted only over ADB (`mytv/install.sh`): `DUMP` and
-`PACKAGE_USAGE_STATS`, for the list of open apps (below). The remote-button helper may read the screen
+TVs that still let an app close another. Granted only over ADB (the commands are under Running apps below): `DUMP`
+and `PACKAGE_USAGE_STATS`, for the list of open apps. The remote-button helper may read the screen
 (`canRetrieveWindowContent`), for closing apps in Settings.
 
 ## Keys

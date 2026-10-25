@@ -1,3 +1,9 @@
+<p align="center"><img src="docs/xmb/home.jpg" alt="The XMB home on a Xiaomi Mi Box S: categories across, the selected one's apps down, the PS3 wave behind" width="720"></p>
+
+> **About this fork:** on its default branch, `xmb-home`, the launcher's Home is a PlayStation 3 style cross-bar
+> (XMB), tested on a Xiaomi Mi Box S. Screenshots, what it does and how to install it: **[docs/xmb.md](docs/xmb.md)**.
+> The rest is [CleanYourTV](https://github.com/Gathin23/cleanyourtv) as it is, merged in from time to time.
+
 <p align="center">
   <a href="https://cleanyour.tv"><img src="https://raw.githubusercontent.com/Gathin23/cleanyourtv/main/docs/banner.png" alt="CleanYourTV. Your TV, minus the ads. Strip the bloatware from any Android TV or Google TV over Wi-Fi and replace the ad-filled home screen with a clean launcher that looks like an Apple TV. No root, no cable, nothing uninstalled, and a one-line restore." width="800"></a>
 </p>
