@@ -130,8 +130,13 @@ final class XmbWave implements GLSurfaceView.Renderer {
     private final XmbSpline.Settings s = new XmbSpline.Settings();
     private final float particleOpacity;
     private final float[] heights = new float[TEX_W * TEX_H];
-    private final FloatBuffer heightBuf = ByteBuffer.allocateDirect(TEX_W * TEX_H * 4)
-            .order(ByteOrder.nativeOrder()).asFloatBuffer();
+    /**
+     * The heights as half floats, the texture's own format. Handed over as floats, the driver converted them on
+     * this thread at every upload: 3 to 5 ms of CPU each time on the Mi Box S, more than working out the heights.
+     */
+    private final short[] halves = new short[TEX_W * TEX_H];
+    private final ShortBuffer heightBuf = ByteBuffer.allocateDirect(TEX_W * TEX_H * 2)
+            .order(ByteOrder.nativeOrder()).asShortBuffer();
 
     /** 0xRRGGBB, written by the UI thread. */
     private volatile int color = 0x2559B3;
@@ -201,6 +206,10 @@ final class XmbWave implements GLSurfaceView.Renderer {
             ptVao = particles(ptProg);
             splineTex = texture();
             setConstantUniforms();
+            String ext = GLES30.glGetString(GLES30.GL_EXTENSIONS);
+            timers = ext != null && ext.contains("GL_EXT_disjoint_timer_query");
+            if (timers) GLES30.glGenQueries(queries.length, queries, 0);
+            java.util.Arrays.fill(queued, false);
             frames = 0;
             ok = true;
         } catch (RuntimeException e) {
@@ -270,10 +279,26 @@ final class XmbWave implements GLSurfaceView.Renderer {
 
     /** Frames drawn so far (the diagnostics panel shows the rate). */
     volatile int framesDrawn;
+    /**
+     * For the diagnostics panel, while measuring: the CPU time of a frame on this thread and of the heights in it,
+     * and the GPU's time for the whole frame (a timer query, where the GPU has them: GL_EXT_disjoint_timer_query;
+     * -1 elsewhere), each averaged over the last second. One query round the whole frame: on a tile-based GPU such
+     * as the Mali, a query between two draws splits the frame in two and times that, not the draws.
+     */
+    volatile boolean measuring;
+    volatile float cpuMs, splineMs, gpuMs = -1;
+    private long cpuSum, splineSum, gpuSum;
+    private int measured, gpuFrames;
+    private static final int GL_TIME_ELAPSED = 0x88BF, GL_GPU_DISJOINT = 0x8FBB, RING = 4;
+    private boolean timers;
+    private final int[] queries = new int[RING];
+    private final boolean[] queued = new boolean[RING];
+    private int queryFrame;
 
     @Override
     public void onDrawFrame(GL10 unused) {
         long now = System.nanoTime();
+        long cpu0 = measuring ? android.os.Debug.threadCpuTimeNanos() : 0, splineNanos = 0;
         float dt = lastNanos == 0 ? 0.016f : (now - lastNanos) / 1e9f;
         framesDrawn++;
         // A frame far later than the next one should have been: what the eye sees as the wave jumping.
@@ -294,11 +319,17 @@ final class XmbWave implements GLSurfaceView.Renderer {
         // still move every frame, so the motion stays smooth while the CPU does half the work.
         boolean newHeights = (frames++ & 1) == 0;
         if (newHeights) {
+            long t0 = measuring ? android.os.Debug.threadCpuTimeNanos() : 0;
             spline.write(s, tSpline, heights, TEX_W, TEX_H);
+            for (int i = 0; i < halves.length; i++) halves[i] = half(heights[i]);
             heightBuf.position(0);
-            heightBuf.put(heights).position(0);
+            heightBuf.put(halves).position(0);
+            if (measuring) splineNanos = android.os.Debug.threadCpuTimeNanos() - t0;
         }
 
+        boolean timed = measuring && timers;
+        int slot = queryFrame % RING;
+        if (timed) GLES30.glBeginQuery(GL_TIME_ELAPSED, queries[slot]);
         GLES30.glDisable(GLES30.GL_DEPTH_TEST);
         GLES30.glDisable(GLES30.GL_BLEND);
         GLES30.glUseProgram(bgProg);
@@ -313,7 +344,7 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, splineTex);
         if (newHeights) {
-            GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, TEX_W, TEX_H, GLES30.GL_RED, GLES30.GL_FLOAT, heightBuf);
+            GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, TEX_W, TEX_H, GLES30.GL_RED, GLES30.GL_HALF_FLOAT, heightBuf);
         }
         GLES30.glUniform1f(uWaveTime, tSpline);   // the rest were set once, in onSurfaceCreated
         GLES30.glBindVertexArray(gridVao);
@@ -326,6 +357,57 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glBindVertexArray(ptVao);
         GLES30.glDrawArrays(GLES30.GL_POINTS, 0, PARTICLES);
         GLES30.glBindVertexArray(0);
+        if (timed) {
+            GLES30.glEndQuery(GL_TIME_ELAPSED);
+            queued[slot] = true;
+            queryFrame++;
+            collect(queryFrame % RING);   // the oldest frame in the ring, RING - 1 frames back: done by now
+        }
+        if (measuring) measure(cpu0, splineNanos);
+    }
+
+    /** Adds a finished frame's GPU time, if its result is in (never waits for it). */
+    private void collect(int slot) {
+        if (!queued[slot]) return;
+        int[] v = new int[1];
+        GLES30.glGetQueryObjectuiv(queries[slot], GLES30.GL_QUERY_RESULT_AVAILABLE, v, 0);
+        if (v[0] == 0) return;
+        queued[slot] = false;
+        GLES30.glGetIntegerv(GL_GPU_DISJOINT, v, 0);
+        if (v[0] != 0) return;   // the GPU's clock jumped (a frequency change): this frame's time means nothing
+        GLES30.glGetQueryObjectuiv(queries[slot], GLES30.GL_QUERY_RESULT, v, 0);
+        gpuSum += v[0] & 0xFFFFFFFFL;
+        gpuFrames++;
+    }
+
+    /** The frame's CPU time on this thread (not the time it waited for a buffer) and the heights', averaged a second. */
+    private void measure(long cpu0, long splineNanos) {
+        cpuSum += android.os.Debug.threadCpuTimeNanos() - cpu0;
+        splineSum += splineNanos;
+        if (++measured < 30) return;
+        cpuMs = cpuSum / 1e6f / measured;
+        splineMs = splineSum / 1e6f / measured;
+        cpuSum = splineSum = 0;
+        measured = 0;
+        if (gpuFrames > 0) gpuMs = gpuSum / 1e6f / gpuFrames;
+        gpuSum = 0;
+        gpuFrames = 0;
+    }
+
+    /**
+     * A float as a half float (IEEE binary16), rounded to nearest; values too small for a normal half become 0 and
+     * values too large the largest. Written out for the heights (16384 of them, 15 times a second): Android's
+     * Half.toHalf took about 1 ms for them on the Mi Box S, this about a fifth of that.
+     */
+    static short half(float f) {
+        int bits = Float.floatToRawIntBits(f);
+        int sign = (bits >>> 16) & 0x8000;
+        int exp = ((bits >>> 23) & 0xFF) - 112;          // rebiased: 127 - 15
+        if (exp <= 0) return (short) sign;               // below 2^-14, or zero: 0 (a wave height that small is flat)
+        if (exp >= 31) return (short) (sign | 0x7BFF);   // the largest half (no infinity or NaN comes from the spline)
+        int h = sign | (exp << 10) | ((bits & 0x7FFFFF) >> 13);
+        if ((bits & 0x1000) != 0 && ((bits & 0x2FFF) != 0)) h++;   // round half to even, a carry may lift the exponent
+        return (short) Math.min(h & 0xFFFF, sign | 0x7BFF);
     }
 
     // ---- setup ---------------------------------------------------------------------------------------
@@ -463,7 +545,7 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
-        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R16F, TEX_W, TEX_H, 0, GLES30.GL_RED, GLES30.GL_FLOAT, null);
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R16F, TEX_W, TEX_H, 0, GLES30.GL_RED, GLES30.GL_HALF_FLOAT, null);
         return id[0];
     }
 }

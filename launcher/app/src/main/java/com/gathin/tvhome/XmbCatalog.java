@@ -25,9 +25,10 @@ import java.util.Set;
 /**
  * What the XMB home shows: the categories (Settings, Video, Music, Apps, Network and the owner's own, {@link XmbMenus})
  * and their items. TV apps go in Video, Music, Apps or one of the owner's menus by {@link #categoryFor}; Settings and
- * Network hold built-in items. Built fresh on every reload; what it keeps is the owner's own moves
- * (SharedPreferences, {@link #PREF_MOVES}) and the decoded app art ({@link #ART}), so coming back to Home does not
- * decode every banner again.
+ * Network hold built-in items. Built fresh on every reload from what it keeps: the owner's own moves
+ * (SharedPreferences, {@link #PREF_MOVES}), the decoded app art ({@link #ART}) and what PackageManager last said
+ * ({@link Installed}, until a package changes), so coming back to Home neither decodes every banner nor lists every
+ * app again.
  */
 final class XmbCatalog {
     static final String SETTINGS = "settings", VIDEO = "video", MUSIC = "music", APPS = "apps", NETWORK = "network";
@@ -101,10 +102,78 @@ final class XmbCatalog {
      */
     private static final Map<String, Art> ART = new HashMap<>();
 
-    /** Memory is short and Home is in the background: the art is decoded again on the next load. */
+    /** Memory is short and Home is in the background: the apps are read and their art decoded again next time. */
     static void trim() {
         ART.clear();
+        installed = null;
     }
+
+    /** A package was added, removed, changed or updated, or the language changed: the next load asks again. */
+    static void invalidate() {
+        installed = null;
+        LAST_OPENED.clear();
+    }
+
+    /**
+     * "Last opened: ..." lines by time opened, for the time they stay true: within the hour they read "5 minutes
+     * ago" and change by the minute, after that "yesterday, 18:08" and change by the day. Writing the date in
+     * words (ICU) for every app on every return to Home was a third of the load.
+     */
+    private static final Map<String, String> LAST_OPENED = new HashMap<>();
+
+    private static String lastOpenedLine(Context ctx, long last) {
+        long now = System.currentTimeMillis();
+        long bucket = now - last < 3_600_000L ? now / 60_000L : java.util.concurrent.TimeUnit.MILLISECONDS.toDays(
+                now + java.util.TimeZone.getDefault().getOffset(now));
+        String key = last + "|" + bucket;
+        String line = LAST_OPENED.get(key);
+        if (line == null) {
+            if (LAST_OPENED.size() > 200) LAST_OPENED.clear();
+            line = ctx.getString(R.string.xmb_last_opened, LastOpened.describe(ctx, last));
+            LAST_OPENED.put(key, line);
+        }
+        return line;
+    }
+
+    /** One launchable app as PackageManager listed it, with what does not change until the package does. */
+    private static final class App {
+        final String pkg, key, label;
+        final ResolveInfo ri;
+        /** Its art, shared between loads; null when it could not be shared and is loaded each time. */
+        final Art art;
+        final Intent launch;
+        final int appCategory;
+        final boolean game;
+
+        App(String pkg, String key, String label, ResolveInfo ri, Art art, Intent launch, int appCategory, boolean game) {
+            this.pkg = pkg;
+            this.key = key;
+            this.label = label;
+            this.ri = ri;
+            this.art = art;
+            this.launch = launch;
+            this.appCategory = appCategory;
+            this.game = game;
+        }
+    }
+
+    /**
+     * What PackageManager says, kept from one load to the next: the TV apps with their labels, art and launch
+     * intents, and the Settings screens. Coming back to Home used to ask for all of it again (about 30 ms on the
+     * Mi Box S, on the main thread as the return animation starts); now only package broadcasts, a new
+     * configuration or a shortage of memory make it read again.
+     */
+    private static final class Installed {
+        final Config cfg;
+        final List<App> apps = new ArrayList<>();
+        Intent tvSettings, display, appSettings, wifi;
+
+        Installed(Config cfg) {
+            this.cfg = cfg;
+        }
+    }
+
+    private static Installed installed;
 
     static final class Item {
         /** Stable identity for remembering the selection: the component, or "sys:<name>" for a built-in item. */
@@ -300,57 +369,24 @@ final class XmbCatalog {
 
         List<String> overrides = new ArrayList<>(cfg.xmb.categories);
         overrides.addAll(moves(ctx));
-        Set<String> hidden = new HashSet<>(cfg.hiddenApps);
         Map<String, Integer> ranks = Order.ranks(Order.load(Order.file(ctx)), cfg.dockApps);
-        List<ResolveInfo> found = pm.queryIntentActivities(
-                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0);
-        String settingsPkg = settingsPackage(pm);
-        Set<String> seen = new HashSet<>();
-        Set<String> liveArt = new HashSet<>();
-        for (ResolveInfo ri : found) {
-            if (ri.activityInfo == null || !ri.activityInfo.exported) continue;
-            String pkg = ri.activityInfo.packageName;
-            // The launcher itself, apps the owner hid, and the TV's Settings app (the Settings category covers it).
-            if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg) || pkg.equals(settingsPkg)) continue;
-            if (!seen.add(pkg)) continue;
-            ComponentName component = new ComponentName(pkg, ri.activityInfo.name);
-            String label = Cards.cleanLabel(cfg.appLabels.containsKey(pkg) ? cfg.appLabels.get(pkg)
-                    : String.valueOf(ri.loadLabel(pm)), pkg);
-            ApplicationInfo ai = ri.activityInfo.applicationInfo;
-            String artKey = pkg + '|' + ri.activityInfo.name + '|' + (ai != null ? ai.sourceDir : "") + '|'
-                    + cfg.appBanners.get(pkg);
-            liveArt.add(artKey);
+        Installed in = installed(ctx, pm, cfg);
+        for (App a : in.apps) {
             Drawable banner, icon;
-            Art art = ART.get(artKey);
-            if (art != null) {
-                banner = art.banner != null ? art.banner.newDrawable() : null;
-                icon = art.icon != null ? art.icon.newDrawable() : null;
+            if (a.art != null) {
+                banner = a.art.banner != null ? a.art.banner.newDrawable() : null;
+                icon = a.art.icon != null ? a.art.icon.newDrawable() : null;
             } else {
-                banner = bundledBanner(ctx, cfg.appBanners.get(pkg));
-                if (banner == null) banner = AppAdapter.loadBanner(ctx, pm, ri);
-                icon = banner == null ? ri.loadIcon(pm) : null;
+                banner = bundledBanner(ctx, cfg.appBanners.get(a.pkg));
+                if (banner == null) banner = AppAdapter.loadBanner(ctx, pm, a.ri);
+                icon = banner == null ? a.ri.loadIcon(pm) : null;
                 withMipmaps(banner);
-                art = new Art(banner, icon);
-                if (art.complete(banner != null, icon != null)) ART.put(artKey, art);
             }
-            long last = LastOpened.get(ctx, pkg);
-            String detail = last > 0 ? ctx.getString(R.string.xmb_last_opened, LastOpened.describe(ctx, last)) : "";
-            Intent launch = new Intent(Intent.ACTION_MAIN).setComponent(component)
-                    .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-            String action = cfg.launchActions.get(pkg);
-            if (action != null) {
-                Intent byAction = new Intent(action).setPackage(pkg)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                if (pm.resolveActivity(byAction, 0) != null) launch = byAction;
-            }
-            Item item = new Item(component.flattenToShortString(), label, detail, banner, icon, false, pkg, launch, null);
-            int appCategory = ai != null ? ai.category : -1;
-            @SuppressWarnings("deprecation")
-            boolean game = ai != null && (ai.flags & ApplicationInfo.FLAG_IS_GAME) != 0;
-            byCat.get(categoryFor(pkg, appCategory, game, overrides, appMenus, cfg.xmb.known)).add(item);
+            long last = LastOpened.get(ctx, a.pkg);
+            String detail = last > 0 ? lastOpenedLine(ctx, last) : "";
+            Item item = new Item(a.key, a.label, detail, banner, icon, false, a.pkg, a.launch, null);
+            byCat.get(categoryFor(a.pkg, a.appCategory, a.game, overrides, appMenus, cfg.xmb.known)).add(item);
         }
-        ART.keySet().retainAll(liveArt);
         // Same order as the tile grid: the owner's saved order, then dock_apps, then by name.
         for (XmbMenus.Menu m : menus) {
             if (!m.holdsApps()) continue;
@@ -369,11 +405,11 @@ final class XmbCatalog {
 
         List<Item> settings = byCat.get(SETTINGS);
         settings.add(builtIn(ctx, "sys:settings", R.string.xmb_tv_settings, R.string.xmb_tv_settings_detail,
-                R.drawable.ic_xmb_settings, settingsIntent(pm, settingsPkg, Settings.ACTION_SETTINGS, null)));
+                R.drawable.ic_xmb_settings, in.tvSettings));
         settings.add(builtIn(ctx, "sys:display", R.string.xmb_display, R.string.xmb_display_detail,
-                R.drawable.ic_xmb_tv, settingsIntent(pm, settingsPkg, Settings.ACTION_DISPLAY_SETTINGS, Settings.ACTION_SETTINGS)));
+                R.drawable.ic_xmb_tv, in.display));
         settings.add(builtIn(ctx, "sys:apps", R.string.xmb_apps, R.string.xmb_apps_detail,
-                R.drawable.ic_xmb_apps, settingsIntent(pm, settingsPkg, Settings.ACTION_APPLICATION_SETTINGS, Settings.ACTION_SETTINGS)));
+                R.drawable.ic_xmb_apps, in.appSettings));
         settings.add(new Item("sys:sounds", ctx.getString(state.soundsOn ? R.string.xmb_sounds_on : R.string.xmb_sounds_off),
                 ctx.getString(state.soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), ctx,
                 state.soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off, null, ACTION_TOGGLE_SOUNDS));
@@ -390,7 +426,7 @@ final class XmbCatalog {
         settings.add(new Item("sys:diagnostics", ctx.getString(R.string.xmb_diag), ctx.getString(R.string.xmb_diag_detail),
                 ctx, R.drawable.ic_xmb_monitor_heart, null, ACTION_DIAG));
 
-        addNetwork(ctx, pm, settingsPkg, byCat.get(NETWORK));
+        addNetwork(ctx, in.wifi, byCat.get(NETWORK));
 
         List<Category> out = new ArrayList<>();
         for (XmbMenus.Menu m : menus) {
@@ -403,6 +439,65 @@ final class XmbCatalog {
             if (!items.isEmpty()) out.add(new Category(m.key, label(ctx, m), ctx.getDrawable(icon), icon, items));
         }
         return out;
+    }
+
+    /** The apps and Settings screens, read again only when the last read is gone (invalidate, trim, a new Config). */
+    private static Installed installed(Context ctx, PackageManager pm, Config cfg) {
+        Installed in = installed;
+        if (in != null && in.cfg == cfg) return in;
+        in = new Installed(cfg);
+        Set<String> hidden = new HashSet<>(cfg.hiddenApps);
+        List<ResolveInfo> found = pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0);
+        String settingsPkg = settingsPackage(pm);
+        Set<String> seen = new HashSet<>();
+        Set<String> liveArt = new HashSet<>();
+        for (ResolveInfo ri : found) {
+            if (ri.activityInfo == null || !ri.activityInfo.exported) continue;
+            String pkg = ri.activityInfo.packageName;
+            // The launcher itself, apps the owner hid, and the TV's Settings app (the Settings category covers it).
+            if (pkg.equals(ctx.getPackageName()) || hidden.contains(pkg) || pkg.equals(settingsPkg)) continue;
+            if (!seen.add(pkg)) continue;
+            ComponentName component = new ComponentName(pkg, ri.activityInfo.name);
+            String label = Cards.cleanLabel(cfg.appLabels.containsKey(pkg) ? cfg.appLabels.get(pkg)
+                    : String.valueOf(ri.loadLabel(pm)), pkg);
+            ApplicationInfo ai = ri.activityInfo.applicationInfo;
+            String artKey = pkg + '|' + ri.activityInfo.name + '|' + (ai != null ? ai.sourceDir : "") + '|'
+                    + cfg.appBanners.get(pkg);
+            liveArt.add(artKey);
+            Art art = ART.get(artKey);
+            if (art == null) {
+                Drawable banner = bundledBanner(ctx, cfg.appBanners.get(pkg));
+                if (banner == null) banner = AppAdapter.loadBanner(ctx, pm, ri);
+                Drawable icon = banner == null ? ri.loadIcon(pm) : null;
+                withMipmaps(banner);
+                Art made = new Art(banner, icon);
+                if (made.complete(banner != null, icon != null)) {
+                    art = made;
+                    ART.put(artKey, art);
+                }
+            }
+            Intent launch = new Intent(Intent.ACTION_MAIN).setComponent(component)
+                    .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            String action = cfg.launchActions.get(pkg);
+            if (action != null) {
+                Intent byAction = new Intent(action).setPackage(pkg)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                if (pm.resolveActivity(byAction, 0) != null) launch = byAction;
+            }
+            @SuppressWarnings("deprecation")
+            boolean game = ai != null && (ai.flags & ApplicationInfo.FLAG_IS_GAME) != 0;
+            in.apps.add(new App(pkg, component.flattenToShortString(), label, ri, art, launch, ai != null ? ai.category : -1,
+                    game));
+        }
+        ART.keySet().retainAll(liveArt);
+        in.tvSettings = settingsIntent(pm, settingsPkg, Settings.ACTION_SETTINGS, null);
+        in.display = settingsIntent(pm, settingsPkg, Settings.ACTION_DISPLAY_SETTINGS, Settings.ACTION_SETTINGS);
+        in.appSettings = settingsIntent(pm, settingsPkg, Settings.ACTION_APPLICATION_SETTINGS, Settings.ACTION_SETTINGS);
+        in.wifi = settingsIntent(pm, settingsPkg, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS);
+        installed = in;
+        return in;
     }
 
     /**
@@ -469,7 +564,7 @@ final class XmbCatalog {
     }
 
     /** The connection (network name and address), the speed test and the Private DNS in use. */
-    private static void addNetwork(Context ctx, PackageManager pm, String settingsPkg, List<Item> out) {
+    private static void addNetwork(Context ctx, Intent wifi, List<Item> out) {
         XmbNet net = XmbNet.read(ctx);
         String title, detail = net.ip != null ? ctx.getString(R.string.xmb_connected, net.ip) : "";
         int glyph;
@@ -492,7 +587,6 @@ final class XmbCatalog {
                 glyph = R.drawable.ic_xmb_wifi_off;
                 break;
         }
-        Intent wifi = settingsIntent(pm, settingsPkg, Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS);
         out.add(new Item("sys:network", title, detail, ctx, glyph, wifi, null));
         XmbSpeedTest.Result last = XmbSpeedTest.last(ctx);
         String speed = XmbSpeedTest.running() ? ctx.getString(R.string.xmb_speedtest_start)

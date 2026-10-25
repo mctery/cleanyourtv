@@ -154,6 +154,7 @@ public class XmbActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         cfg = Config.load(this);
+        XmbCatalog.invalidate();   // packages may have changed while no Home was listening
         // restore_key_services: after a force stop, put the remote's accessibility helpers back, as the tile grid
         // does when it starts (ServiceRepair; on this branch the grid is switched off and never starts).
         if (cfg.restoreKeyServices) ServiceRepair.restore(this);
@@ -263,6 +264,7 @@ public class XmbActivity extends Activity {
             // An update sends REMOVED (replacing) then ADDED: only the second one matters.
             if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())
                     && intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return;
+            XmbCatalog.invalidate();
             dirty = true;
             // Play Store updates come in bursts: one reload after they settle, not one per broadcast.
             handler.removeCallbacks(reloadLater);
@@ -386,6 +388,7 @@ public class XmbActivity extends Activity {
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         XmbDebug.log("configuration changed");
+        XmbCatalog.invalidate();   // a new language: the apps' labels
         dirty = true;
         shownSignature = null;
         if (resumed) reload();
@@ -690,6 +693,7 @@ public class XmbActivity extends Activity {
     // ---- content ---------------------------------------------------------------------------------------------
 
     private void reload() {
+        long t0 = SystemClock.uptimeMillis();
         dirty = false;
         if (cat >= 0 && cat < cats.size()) selectedCat = cats.get(cat).key;
         menus = XmbMenus.load(this, cfg.xmb.menus);
@@ -700,14 +704,16 @@ public class XmbActivity extends Activity {
         state.musicLevel = music.level();
         state.colorName = colorName(colorMode());
         List<XmbCatalog.Category> loaded = XmbCatalog.load(this, cfg, menus, state);
+        long loadMs = SystemClock.uptimeMillis() - t0;
         String sig = XmbCatalog.signature(loaded);
         if (sig.equals(shownSignature) && !catViews.isEmpty()) {
             // The same apps and items: only lines such as "last opened" may differ, and they change in place.
             refreshDetails(loaded);
-            XmbDebug.log("reload: nothing to rebuild");
+            XmbDebug.log("reload: nothing to rebuild (load " + loadMs + " ms)");
             return;
         }
-        XmbDebug.log("reload: rebuilt (" + loaded.size() + " categories" + (loaded.size() != cats.size() ? ", was " + cats.size() : "") + ")");
+        XmbDebug.log("reload: rebuilt (" + loaded.size() + " categories" + (loaded.size() != cats.size() ? ", was " + cats.size() : "")
+                + ", load " + loadMs + " ms)");
         // Only now: an unchanged reload (an app updating in the background) leaves an item's options open.
         if (optionsFor != null) closeSide(true);
         shownSignature = sig;
@@ -1973,7 +1979,7 @@ public class XmbActivity extends Activity {
             case "audio": return R.drawable.ic_xmb_headphones;
             case "temperature": return R.drawable.ic_xmb_thermostat;
             case "weather": return R.drawable.ic_xmb_partly_cloudy_day;
-            case "air": return R.drawable.ic_xmb_masks;
+            case "air": return R.drawable.ic_xmb_pm25;
             case "speed": return R.drawable.ic_xmb_speed;
             case "network": return R.drawable.ic_xmb_wifi;
             default: return R.drawable.ic_xmb_palette;
@@ -2159,6 +2165,7 @@ public class XmbActivity extends Activity {
     private void setDebugPanel(boolean on) {
         debugPanel.setVisibility(on ? View.VISIBLE : View.GONE);
         XmbDebug.listener = on ? this::paintDebugPanel : null;
+        if (wave != null) wave.measuring = on;
         handler.removeCallbacks(debugTick);
         if (on) {
             lastWaveFrames = wave != null ? wave.framesDrawn : 0;
@@ -2184,8 +2191,13 @@ public class XmbActivity extends Activity {
         if (debugPanel.getVisibility() != View.VISIBLE) return;
         Runtime rt = Runtime.getRuntime();
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format(Locale.ROOT, "wave %d fps   heap %d/%d MB   %s", waveFps,
-                (rt.totalMemory() - rt.freeMemory()) >> 20, rt.maxMemory() >> 20, idle ? "idle" : "awake"));
+        if (wave != null) {
+            sb.append(String.format(Locale.ROOT, "wave %d fps  cpu %.1f ms (heights %.1f)", waveFps, wave.cpuMs, wave.splineMs));
+            if (wave.gpuMs >= 0) sb.append(String.format(Locale.ROOT, "  gpu %.1f ms", wave.gpuMs));
+            sb.append('\n');
+        }
+        sb.append(String.format(Locale.ROOT, "heap %d/%d MB   %s", (rt.totalMemory() - rt.freeMemory()) >> 20,
+                rt.maxMemory() >> 20, idle ? "idle" : "awake"));
         for (String line : XmbDebug.recent(8)) sb.append('\n').append(line);
         debugPanel.setText(sb);
     }

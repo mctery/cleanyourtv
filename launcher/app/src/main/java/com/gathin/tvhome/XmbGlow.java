@@ -6,6 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.util.LruCache;
 
@@ -84,6 +85,39 @@ final class XmbGlow {
         top.setTint(tint);
         top.setBounds(pad, pad, pad + size, pad + size);
         top.draw(c);
+        CACHE.put(key, b);
+        return b;
+    }
+
+    /**
+     * A word drawn as an icon: the text in its tint over the same two glows, on its ink's bounds plus pad on each
+     * side, so it lines up with the icons by its middle (the PM2.5 label, which no picture says as plainly).
+     */
+    static Bitmap label(String text, Typeface face, float size, int pad, int tint, int inner, float innerBlur, int outer,
+                        float outerBlur) {
+        String key = "t" + text + '/' + System.identityHashCode(face) + '/' + size + '/' + pad + '/' + tint + '/' + inner
+                + '/' + innerBlur + '/' + outer + '/' + outerBlur;
+        Bitmap b = CACHE.get(key);
+        if (b != null) return b;
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setTypeface(face);
+        p.setTextSize(size);
+        p.setColor(Color.WHITE);
+        android.graphics.Rect r = new android.graphics.Rect();
+        p.getTextBounds(text, 0, text.length(), r);
+        int w = r.width() + 2 * pad, h = r.height() + 2 * pad;
+        float x = pad - r.left, y = pad - r.top;
+        Bitmap shape = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        new Canvas(shape).drawText(text, x, y, p);
+        Bitmap mask = shape.extractAlpha();
+        shape.recycle();
+        b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        glow(c, mask, outerBlur, outer);
+        glow(c, mask, innerBlur, inner);
+        mask.recycle();
+        p.setColor(tint);
+        c.drawText(text, x, y, p);
         CACHE.put(key, b);
         return b;
     }

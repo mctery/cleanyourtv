@@ -38,8 +38,30 @@ final class XmbNet {
         this.privateDns = privateDns;
     }
 
-    /** The best way out the box has: the LAN over Wi-Fi over anything else; NONE without one. */
+    private static XmbNet last;
+    private static long lastAt;
+
+    /**
+     * The connection, read at most every three seconds: the status row and the Network category both ask as Home
+     * comes back, and each read is a handful of calls to the system. Changes to the network clear it (forget).
+     */
     static XmbNet read(Context ctx) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        XmbNet n = last;
+        if (n != null && now - lastAt < 3000) return n;
+        n = readNow(ctx);
+        last = n;
+        lastAt = now;
+        return n;
+    }
+
+    /** The network changed (a callback, a new Wi-Fi signal level): the next read asks the system. */
+    static void forget() {
+        last = null;
+    }
+
+    /** The best way out the box has: the LAN over Wi-Fi over anything else; NONE without one. */
+    private static XmbNet readNow(Context ctx) {
         try {
             ConnectivityManager cm = ctx.getSystemService(ConnectivityManager.class);
             if (cm == null) return none();

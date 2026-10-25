@@ -47,7 +47,7 @@ Left of the clock, white icons with a soft glow, no frames. Always there, from t
 | Palette | The theme colour: it glows in the wave's colour |
 | Wi-Fi arcs, LAN | The connection: one, two or three lit arcs for the Wi-Fi strength, the LAN icon on a cable, a struck-out Wi-Fi when there is none |
 | Sky and degrees | The weather now (below) |
-| Mask and a number | Fine dust, PM2.5 in µg/m³, the mask glowing in the colour of Thailand's scale: blue up to 15, green up to 25, yellow up to 37.5, orange up to 75, red above |
+| PM2.5 and a number | Fine dust in µg/m³, the word glowing in the colour of Thailand's scale: blue up to 15, green up to 25, yellow up to 37.5, orange up to 75, red above |
 
 Only while there is something to say, further left: the box's download speed (a gauge and "45 Mb/s", every app
 together) while something downloads faster than 2 Mb/s, a download arrow with its progress while an app installs,
@@ -86,8 +86,10 @@ service measured itself. Home going behind an app stops it.
 
 Settings > Diagnostics records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
 the status row; the video goes to `Movies/XMB`, 1280x720) and switches on an event panel: the wave's frame rate and
-the latest of what changed the screen (a rebuild of the cross-bar and why, an icon added to or gone from the row,
-focus and screensaver changes, wave frames that came late). The same lines go to logcat as `TvHome.Debug`.
+the latest of what changed the screen (a rebuild of the cross-bar and why and how long the load took, an icon added
+to or gone from the row, focus and screensaver changes, wave frames that came late). Its first line is the wave's cost:
+frames a second, the CPU time of a frame on its thread (and of the heights in it) and the GPU time of a frame (a
+timer query, where the GPU has them). The same lines go to logcat as `TvHome.Debug`.
 
 ## Theme colour
 
