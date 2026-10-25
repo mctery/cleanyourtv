@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "PM" over "2.5", for the fine-dust item in the XMB's lists: the word, which reads as dust where a picture did
-     not. Made from the outlines of the launcher's own Outfit (SIL Open Font License) at weight 400. -->
+<!-- "PM" over "2.5", the fine-dust item of the XMB's status row and its settings: the word, which reads as dust
+     where a picture did not. Made from the outlines of the launcher's own Outfit (SIL Open Font License) at weight 400. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp" android:height="48dp"
     android:viewportWidth="960" android:viewportHeight="960">

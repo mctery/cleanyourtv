@@ -182,4 +182,5 @@
     <string name="xmb_diag_record_failed">อัดหน้าจอไม่สำเร็จ</string>
     <string name="xmb_diag_panel_on">แผงเหตุการณ์: เปิด</string>
     <string name="xmb_diag_panel_off">แผงเหตุการณ์: ปิด</string>
+    <string name="xmb_diag_boot">เล่นแอนิเมชันเปิดเครื่อง</string>
 </resources>

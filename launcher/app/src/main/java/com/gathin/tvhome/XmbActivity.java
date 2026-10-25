@@ -155,6 +155,7 @@ public class XmbActivity extends Activity {
         super.onCreate(savedInstanceState);
         cfg = Config.load(this);
         XmbCatalog.invalidate();   // packages may have changed while no Home was listening
+        bootDue = firstStartSinceBoot();
         // restore_key_services: after a force stop, put the remote's accessibility helpers back, as the tile grid
         // does when it starts (ServiceRepair; on this branch the grid is switched off and never starts).
         if (cfg.restoreKeyServices) ServiceRepair.restore(this);
@@ -310,27 +311,50 @@ public class XmbActivity extends Activity {
         if (dirty) reload();
         tick();
         if (!reducedMotion) handler.post(blink);
+        // Standby long enough with Home in front: waking up is turning the TV on (xmb_boot_animation "power").
+        if (screenOffAt > 0) {
+            if (SystemClock.elapsedRealtime() - screenOffAt >= WAKE_BOOT_AFTER_MS
+                    && XmbConfig.POWER.equals(cfg.xmb.bootAnimation)) bootDue = true;
+            screenOffAt = 0;
+        }
+        boolean boot = bootDue && wave != null && animMs > 0 && !XmbConfig.OFF.equals(cfg.xmb.bootAnimation);
+        bootDue = false;
+        // Before the wave's first frame, so that frame is already the animation's black.
+        if (boot) startBootAnimation();
         if (waveView != null) {
             waveView.onResume();
             wave.resetClock();
             startWave();
         }
         wake(false);
-        boolean jingle = !openingPlayed && SystemClock.elapsedRealtime() < 5 * 60_000;
+        // The start-up sound: with the boot animation's lines; without one, as Home first comes up after a start.
+        boolean jingle = !boot && !openingPlayed && SystemClock.elapsedRealtime() < 5 * 60_000;
         if (jingle) sounds.play(XmbSounds.OPENING);
         openingPlayed = true;
         status.start();
         if (debugPanel.getVisibility() == View.VISIBLE) setDebugPanel(true);
-        if (!dreaming) music.resume(jingle ? 7000 : 1200);
-        if (introDue) playIntro(jingle);
-        else if (returnDue) playReturn();
-        else if (pendingAnim != null || launching) settle();
+        if (!dreaming) music.resume(boot ? 7500 : jingle ? 7000 : 1200);
+        if (boot) {
+            // the menu comes in at the animation's mark
+        } else if (introDue) {
+            playIntro(jingle);
+        } else if (returnDue) {
+            playReturn();
+        } else if (pendingAnim != null || launching) {
+            settle();
+        }
         introDue = returnDue = false;
     }
 
     @Override
     protected void onPause() {
         resumed = false;
+        if (booting) {
+            // Something came up mid-animation: the wave as it always is; the return puts the menu back.
+            booting = false;
+            wave.endBoot();
+        }
+        preloading = 0;
         XmbSpeedTest.cancel();
         closeSide(true);
         closePrompt();
@@ -397,6 +421,10 @@ public class XmbActivity extends Activity {
     @Override
     protected void onStop() {
         stopped = true;
+        // Stopped because the TV went to standby with Home in front, not because an app came up: noted, so that
+        // waking up after a while plays the boot animation.
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        if (pm != null && !pm.isInteractive()) screenOffAt = SystemClock.elapsedRealtime();
         super.onStop();
     }
 
@@ -876,7 +904,7 @@ public class XmbActivity extends Activity {
     private Row buildRow(XmbCatalog.Item item) {
         Row r = new Row();
         r.item = item;
-        r.tile = item.banner != null || !item.glyph;
+        r.tile = isTile(item);
         r.root = new FrameLayout(this);
         r.root.setClipChildren(false);
         // Faded rows are drawn straight, without an offscreen pass each: their glow is off, nothing overlaps.
@@ -949,14 +977,19 @@ public class XmbActivity extends Activity {
         return r;
     }
 
-    /** The glow behind the row's tile or glyph when selected (the same for every tile; XmbGlow keeps them). */
+    /** An app is drawn as a tile (its banner, or its icon on a quiet tile); a built-in item as a glyph. */
+    private static boolean isTile(XmbCatalog.Item item) {
+        return item.banner != null || !item.glyph;
+    }
+
+    /** The glow behind an item's tile or glyph when selected (the same for every tile; XmbGlow keeps them). */
+    private Bitmap rowGlow(XmbCatalog.Item item) {
+        if (isTile(item)) return XmbGlow.rect(px(THUMB_W), px(THUMB_H), px(RADIUS), px(34), withAlpha(accentUi, 0xB3));
+        return XmbGlow.of(item.iconRes, item.icon, px(GLYPH - 36), px(24) + px(18), withAlpha(accentUi, 0xC0));
+    }
+
     private void applyRowGlow(Row r) {
-        if (r.tile) {
-            r.glow.setImageBitmap(XmbGlow.rect(px(THUMB_W), px(THUMB_H), px(RADIUS), px(34), withAlpha(accentUi, 0xB3)));
-        } else {
-            r.glow.setImageBitmap(XmbGlow.of(r.item.iconRes, r.item.icon, px(GLYPH - 36), px(24) + px(18),
-                    withAlpha(accentUi, 0xC0)));
-        }
+        r.glow.setImageBitmap(rowGlow(r.item));
     }
 
     private static float slotH(Row r, boolean sel) {
@@ -1053,6 +1086,11 @@ public class XmbActivity extends Activity {
         // A key that just closed something (Back, Left, Menu) does nothing more until it is let go: held, its
         // repeats would close the next level, then move the cross-bar.
         if (keyCode == swallowUntilUp) return true;
+        if (booting) {
+            // A key during the boot animation: the rest of it runs fast and the menu comes now.
+            if (event.getRepeatCount() == 0) skipBoot();
+            return true;
+        }
         if (launching) return true;   // the 200 ms between OK and the app opening
         if (pendingAnim != null) settle();   // a key before the intro started: put everything where it belongs
         if (idle) {
@@ -1284,9 +1322,17 @@ public class XmbActivity extends Activity {
     private void playIntro(boolean boot) {
         if (animMs == 0) return;
         float k = boot ? 1f : INTRO_SHORT;
-        veil.animate().cancel();
-        veil.setAlpha(1f);
-        veil.setVisibility(View.VISIBLE);
+        hideForIntro(true);
+        queueAnim(() -> runIntro(k, true));
+    }
+
+    /** Everything the intro brings in, where it comes from: hidden, the categories to the right, the column low. */
+    private void hideForIntro(boolean veiled) {
+        if (veiled) {
+            veil.animate().cancel();
+            veil.setAlpha(1f);
+            veil.setVisibility(View.VISIBLE);
+        }
         for (int i = 0; i < catViews.size(); i++) {
             View v = catViews.get(i).root;
             v.animate().cancel();
@@ -1297,19 +1343,116 @@ public class XmbActivity extends Activity {
         column.setAlpha(0f);
         column.setTranslationY(px(INTRO_COLUMN_FROM));
         top.setAlpha(0f);
-        queueAnim(() -> {
+    }
+
+    /** The intro at k of its full length; veiled: the black over the wave lifts too. */
+    private void runIntro(float k, boolean veiled) {
+        if (veiled) {
             // Gone once clear: a full-screen view over the wave's surface, even transparent, is still drawn.
             veil.animate().alpha(0f).setStartDelay(0).setDuration((long) (INTRO_VEIL_MS * k)).setInterpolator(ease)
                     .withEndAction(() -> veil.setVisibility(View.GONE)).start();
-            for (int i = 0; i < catViews.size(); i++) {
-                catViews.get(i).root.animate().alpha(1f).translationX(px(i * SLOT))
-                        .setStartDelay((long) ((INTRO_ROW_DELAY_MS + INTRO_ROW_STEP_MS * Math.abs(i - cat)) * k))
-                        .setDuration((long) (INTRO_ROW_MS * k)).setInterpolator(ease).start();
-            }
-            column.animate().alpha(1f).translationY(0f).setStartDelay((long) (INTRO_COLUMN_DELAY_MS * k))
-                    .setDuration((long) (INTRO_COLUMN_MS * k)).setInterpolator(ease).start();
-            top.animate().alpha(1f).setStartDelay((long) (INTRO_TOP_DELAY_MS * k)).setDuration((long) (INTRO_TOP_MS * k)).start();
+        }
+        for (int i = 0; i < catViews.size(); i++) {
+            catViews.get(i).root.animate().alpha(1f).translationX(px(i * SLOT))
+                    .setStartDelay((long) ((INTRO_ROW_DELAY_MS + INTRO_ROW_STEP_MS * Math.abs(i - cat)) * k))
+                    .setDuration((long) (INTRO_ROW_MS * k)).setInterpolator(ease).start();
+        }
+        column.animate().alpha(1f).translationY(0f).setStartDelay((long) (INTRO_COLUMN_DELAY_MS * k))
+                .setDuration((long) (INTRO_COLUMN_MS * k)).setInterpolator(ease).start();
+        top.animate().alpha(1f).setStartDelay((long) (INTRO_TOP_DELAY_MS * k)).setDuration((long) (INTRO_TOP_MS * k)).start();
+    }
+
+    // ---- the boot animation ------------------------------------------------------------------------------------
+
+    private static final String PREF_BOOT_COUNT = "xmb_boot_count";
+    /** The boot animation is due at the next resume: the box just started, or the TV was turned on again. */
+    private boolean bootDue;
+    /** It is playing: the menu waits for its mark, or a key. */
+    private boolean booting;
+    /** When Home was stopped by the TV going to standby (0: it was not), to tell standby from a blink of the screen. */
+    private long screenOffAt;
+    /** Categories still being made ready by the preload; the menu waits for them (BOOT_TIMEOUT_MS at most). */
+    private int preloading;
+
+    /** True the first time Home starts after the box did: Android's boot count is not the one Home saw last. */
+    private boolean firstStartSinceBoot() {
+        int count = android.provider.Settings.Global.getInt(getContentResolver(),
+                android.provider.Settings.Global.BOOT_COUNT, -1);
+        SharedPreferences p = prefs();
+        if (count < 0) return !openingPlayed && SystemClock.elapsedRealtime() < 5 * 60_000;
+        if (count == p.getInt(PREF_BOOT_COUNT, -1)) return false;
+        p.edit().putInt(PREF_BOOT_COUNT, count).apply();
+        // A launcher installed or restarted long after the box started is not a start.
+        return SystemClock.elapsedRealtime() < 10 * 60_000;
+    }
+
+    /**
+     * Turning the TV on (xmb_boot_animation): the wave plays its own boot animation (XmbWave.startBoot) while the
+     * menu waits hidden: black, the lines drawn in white from left to right with the start-up sound, the colour
+     * spreading out from the middle, then the menu's intro. Meanwhile what the menu shows is made ready (preload).
+     */
+    private void startBootAnimation() {
+        booting = true;
+        closePrompt();
+        closeSide(true);
+        settle();
+        hideForIntro(false);
+        XmbDebug.log("boot animation");
+        wave.startBoot(mark -> {
+            if (!booting) return;
+            if (mark == XmbWave.LINES) sounds.play(XmbSounds.OPENING);
+            else if (mark == XmbWave.MENU) bootMenu();
         });
+        handler.postDelayed(bootTimeout, BOOT_TIMEOUT_MS);
+        preload();
+    }
+
+    /** Should the wave not draw the animation (no focus, a GPU that refused it): the menu comes anyway. */
+    private final Runnable bootTimeout = () -> {
+        preloading = 0;
+        bootMenu();
+    };
+
+    private void bootMenu() {
+        if (!booting) return;
+        if (preloading > 0) {
+            handler.postDelayed(this::bootMenu, 100);   // the timeout clears preloading if it never ends
+            return;
+        }
+        booting = false;
+        handler.removeCallbacks(bootTimeout);
+        runIntro(BOOT_INTRO, false);
+        wake(false);
+    }
+
+    /** A key: what is left of the animation runs five times as fast, and the menu comes now. */
+    private void skipBoot() {
+        wave.skipBoot();
+        preloading = 0;
+        bootMenu();
+    }
+
+    /**
+     * While the boot animation plays, what the menu will show is made ready: the glow behind every item (blurred
+     * in software, the slow part of a first visit to a category) and every banner handed to the GPU
+     * (Bitmap.prepareToDraw), one category per message so the animation's marks are never held up.
+     */
+    private void preload() {
+        List<XmbCatalog.Category> all = new ArrayList<>(cats);
+        preloading = all.size();
+        for (int i = 0; i < all.size(); i++) {
+            XmbCatalog.Category c = all.get(i);
+            handler.postDelayed(() -> {
+                for (XmbCatalog.Item item : c.items) {
+                    if (item.banner instanceof android.graphics.drawable.BitmapDrawable) {
+                        Bitmap b = ((android.graphics.drawable.BitmapDrawable) item.banner).getBitmap();
+                        if (b != null) b.prepareToDraw();
+                    }
+                    rowGlow(item);
+                }
+                preloading = Math.max(0, preloading - 1);
+            }, 40L * (i + 1));
+        }
     }
 
     /** Back from an app: the cross-bar fades in, settling from slightly larger, the categories closing in. */
@@ -2140,6 +2283,17 @@ public class XmbActivity extends Activity {
             sideQuiet = true;
             openDiagnostics(self);
         });
+        if (wave != null && animMs > 0) {
+            // The boot animation now, to see it without turning the TV off and on.
+            texts.add(getString(R.string.xmb_diag_boot));
+            icons.add(R.drawable.ic_xmb_power_settings_new);
+            actions.add(() -> {
+                closeSide(true);
+                music.pause();
+                startBootAnimation();
+                music.resume(7500);
+            });
+        }
         showSide(texts, icons, focus, i -> actions.get(i).run(), null);
     }
 

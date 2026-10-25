@@ -38,6 +38,19 @@ final class XmbStyle {
     static final long INTRO_VEIL_MS = 1600, INTRO_ROW_DELAY_MS = 300, INTRO_ROW_STEP_MS = 70, INTRO_ROW_MS = 520,
             INTRO_COLUMN_DELAY_MS = 650, INTRO_COLUMN_MS = 600, INTRO_TOP_DELAY_MS = 1000, INTRO_TOP_MS = 700;
     static final float INTRO_SHORT = 0.6f, INTRO_ROW_FROM = 90, INTRO_COLUMN_FROM = 40;
+    /**
+     * The boot animation, in milliseconds from its first frame (XmbWave draws it): black; the wave's lines drawn in
+     * white from the left edge to the right from BOOT_LINES_AT_MS for BOOT_LINES_MS, the start-up sound with them;
+     * the colour spreading from the middle band out to the top and bottom from BOOT_COLOUR_AT_MS for
+     * BOOT_COLOUR_MS; the menu coming in from BOOT_MENU_AT_MS, its intro at BOOT_INTRO of the full one's length.
+     */
+    static final long BOOT_LINES_AT_MS = 400, BOOT_LINES_MS = 3000, BOOT_COLOUR_AT_MS = 3200, BOOT_COLOUR_MS = 1700,
+            BOOT_MENU_AT_MS = 4700;
+    static final float BOOT_INTRO = 0.65f;
+    /** The menu comes anyway this long after the boot animation was asked for, should the wave not draw it. */
+    static final long BOOT_TIMEOUT_MS = 9000;
+    /** The TV in standby at least this long counts as being turned on again (xmb_boot_animation "power"). */
+    static final long WAKE_BOOT_AFTER_MS = 30_000;
     /** An intro or return waits for the window to finish coming in, at most this long. */
     static final long ANIM_WAIT_MS = 900;
     /** Idle: the menu fades out to the wave, and comes back with the first key. */

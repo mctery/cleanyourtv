@@ -332,6 +332,11 @@
     <!-- XMB home: seconds without a key before the menu fades out to the wave (any key brings it back); 0 keeps it
          up. Can also be set with "xmb_idle_seconds" in a theme's config.json. -->
     <integer name="xmb_idle_seconds">45</integer>
+    <!-- XMB home: the boot animation, drawn with the wave itself: black, its lines in white from left to right with
+         the start-up sound, then its colour spreading out from the middle, then the menu (about six seconds). "power"
+         plays it when the box starts and when it wakes from standby after half a minute or more (turning the TV on),
+         "boot" only when the box starts, "off" never. Theme key xmb_boot_animation. -->
+    <string name="xmb_boot_animation" translatable="false">power</string>
     <!-- XMB home: the status row's warnings, in amber: the remote's battery under this many percent, and free
          storage under this many megabytes. Theme keys xmb_low_battery and xmb_low_storage_mb. -->
     <integer name="xmb_low_battery">20</integer>

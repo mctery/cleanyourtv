@@ -32,9 +32,12 @@ final class XmbConfig {
     final int lowStorageMb;
     /** What the launcher knows about apps that do not say what they are (xmb_video_apps, xmb_music_apps, xmb_menu_apps). */
     final XmbCatalog.Known known;
+    /** When the boot animation plays: POWER (the box started, or woke from standby), BOOT (it started) or OFF. */
+    final String bootAnimation;
+    static final String POWER = "power", BOOT = "boot", OFF = "off";
 
     XmbConfig(List<String> categories, List<String> menus, String color, List<String> status, int idleSeconds,
-              int lowBattery, int lowStorageMb, XmbCatalog.Known known) {
+              int lowBattery, int lowStorageMb, XmbCatalog.Known known, String bootAnimation) {
         this.categories = Collections.unmodifiableList(categories);
         this.menus = Collections.unmodifiableList(menus);
         this.color = color;
@@ -43,6 +46,7 @@ final class XmbConfig {
         this.lowBattery = lowBattery;
         this.lowStorageMb = lowStorageMb;
         this.known = known;
+        this.bootAnimation = BOOT.equals(bootAnimation) || OFF.equals(bootAnimation) ? bootAnimation : POWER;
     }
 
     static XmbConfig load(Resources res, JSONObject json) {
@@ -52,6 +56,7 @@ final class XmbConfig {
         String color = res.getString(R.string.xmb_color);
         int idle = res.getInteger(R.integer.xmb_idle_seconds), battery = res.getInteger(R.integer.xmb_low_battery);
         int storage = res.getInteger(R.integer.xmb_low_storage_mb);
+        String boot = res.getString(R.string.xmb_boot_animation);
         if (json != null) {
             categories = Config.stringList(json, "xmb_categories", categories);
             menus = Config.stringList(json, "xmb_menus", menus);
@@ -63,9 +68,10 @@ final class XmbConfig {
             video = Config.stringList(json, "xmb_video_apps", video);
             music = Config.stringList(json, "xmb_music_apps", music);
             menuApps = Config.stringList(json, "xmb_menu_apps", menuApps);
+            boot = Config.string(json, "xmb_boot_animation", boot);
         }
         return new XmbConfig(categories, menus, color, status, Math.max(0, idle), Math.max(0, Math.min(100, battery)),
-                Math.max(0, storage), new XmbCatalog.Known(video, music, menuApps));
+                Math.max(0, storage), new XmbCatalog.Known(video, music, menuApps), boot == null ? POWER : boot.trim());
     }
 
     private static List<String> list(Resources res, int id) {

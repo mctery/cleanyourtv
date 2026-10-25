@@ -38,6 +38,18 @@ battery icons, and
 After 45 seconds without a key the menu fades out and only the wave stays (`xmb_idle_seconds` in config.xml or a
 theme; `0` keeps it up). Any key brings it back.
 
+## Boot animation
+
+When the TV is turned on, Home plays a boot animation drawn with the wave itself, about six seconds: black, then
+the wave's lines drawn in white from the left edge to the right with the start-up sound, a brighter head and
+sparkles left behind, then its colour spreading from the middle band out to the top and bottom while the lines
+settle into the wave as it always is, then the menu coming in. Meanwhile Home makes ready what the menu shows (the
+glow behind every item, every banner handed to the GPU), so the first moves are as smooth as any later. A key
+during it brings the menu at once. It plays when the box starts and when it wakes from standby after half a minute
+or more with Home in front (`xmb_boot_animation`: `power`, the default; `boot` for a start of the box only; `off`).
+It follows the box's own boot logo, which only a rooted box could change. Settings > Diagnostics > Play the
+start-up animation shows it at any time.
+
 ## Status row
 
 Left of the clock, white icons with a soft glow, no frames. Always there, from the clock leftwards:
@@ -47,7 +59,7 @@ Left of the clock, white icons with a soft glow, no frames. Always there, from t
 | Palette | The theme colour: it glows in the wave's colour |
 | Wi-Fi arcs, LAN | The connection: one, two or three lit arcs for the Wi-Fi strength, the LAN icon on a cable, a struck-out Wi-Fi when there is none |
 | Sky and degrees | The weather now (below) |
-| PM2.5 and a number | Fine dust in µg/m³, the word glowing in the colour of Thailand's scale: blue up to 15, green up to 25, yellow up to 37.5, orange up to 75, red above |
+| PM over 2.5, and a number | Fine dust in µg/m³, the letters glowing in the colour of Thailand's scale: blue up to 15, green up to 25, yellow up to 37.5, orange up to 75, red above |
 
 Only while there is something to say, further left: the box's download speed (a gauge and "45 Mb/s", every app
 together) while something downloads faster than 2 Mb/s, a download arrow with its progress while an app installs,
@@ -84,7 +96,7 @@ service measured itself. Home going behind an app stops it.
 
 ## Diagnostics
 
-Settings > Diagnostics records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
+Settings > Diagnostics plays the boot animation, records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
 the status row; the video goes to `Movies/XMB`, 1280x720) and switches on an event panel: the wave's frame rate and
 the latest of what changed the screen (a rebuild of the cross-bar and why and how long the load took, an icon added
 to or gone from the row, focus and screensaver changes, wave frames that came late). Its first line is the wave's cost:

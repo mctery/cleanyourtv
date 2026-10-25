@@ -59,8 +59,8 @@ final class XmbStatus {
     }
 
     private static final String TAG = "TvHome.Status";
-    /** An icon's size, its glow's room round it, the gap between items and between kinds; a word's text size. */
-    private static final float ICON = 40, PAD = 18, GAP = 34, GROUP_GAP = 52, LABEL = 24;
+    /** An icon's size, its glow's room round it, the gap between items and between kinds. */
+    private static final float ICON = 40, PAD = 18, GAP = 34, GROUP_GAP = 52;
     /** Hysteresis round the storage warning: on below the limit less this, off above the limit plus this. */
     private static final long STORAGE_MARGIN = 50_000_000L;
     /** xmb_low_battery and xmb_low_storage_mb (XmbConfig). */
@@ -371,14 +371,14 @@ final class XmbStatus {
                 return w != null ? pair(icon(XmbWeather.icon(w.code, w.day)), w.temperature + "°") : null;
             }
             case "air": {
-                // PM2.5: the word itself, glowing in the colour of Thailand's scale (a mask was not read as dust);
+                // PM2.5: "PM" over "2.5" glowing in the colour of Thailand's scale (a mask was not read as dust);
                 // when needed means from orange up.
                 XmbWeather w = XmbWeather.current(act);
                 if (w == null || w.pm25x10 < 0) return null;
                 int band = XmbWeather.pmBand(w.pm25x10);
                 if (!always && band < 3) return null;
                 part = band + "/" + w.pm25();
-                return pair(image(pmLabel(XmbWeather.PM_COLORS[band])), String.valueOf(w.pm25()), 14);
+                return pair(image(colored(R.drawable.ic_xmb_pm25, XmbWeather.PM_COLORS[band])), String.valueOf(w.pm25()));
             }
             case "speed": {
                 // The box's download rate, all apps together; when needed means while something downloads.
@@ -624,11 +624,6 @@ final class XmbStatus {
 
     /** An icon and its number (the temperature, a download's progress), as one item. */
     private View pair(View icon, String number) {
-        return pair(icon, number, 8);
-    }
-
-    /** The same with the gap between them, in 1920x1080 units (a word needs a little more than an icon's glow). */
-    private View pair(View icon, String number, float gap) {
         LinearLayout p = new LinearLayout(act);
         p.setOrientation(LinearLayout.HORIZONTAL);
         p.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -647,7 +642,7 @@ final class XmbStatus {
         // on the row, and lifted by what the figures sit below the middle of their line.
         t.setTranslationY(-inkDrop(t.getPaint()));
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, t.getPaint().getFontMetricsInt(null));
-        tlp.leftMargin = u.px(gap);
+        tlp.leftMargin = u.px(8);
         p.addView(t, tlp);
         p.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
         return p;
@@ -657,15 +652,6 @@ final class XmbStatus {
     private Bitmap bitmap(int res, int[] glow) {
         return XmbGlow.icon(res, act.getDrawable(res), u.px(ICON), u.px(PAD), glow[0], glow[1], u.px(3), glow[2],
                 u.px(10));
-    }
-
-    private Typeface labelFace;
-
-    /** "PM2.5" in the row's light type, white over a wide glow of the band's colour. */
-    private Bitmap pmLabel(int rgb) {
-        if (labelFace == null) labelFace = act.getResources().getFont(R.font.outfit_regular);
-        return XmbGlow.label("PM2.5", labelFace, u.px(LABEL), u.px(PAD), Color.WHITE, XmbStyle.COLOR_GLOW_INNER, u.px(3),
-                (XmbStyle.COLOR_GLOW_ALPHA << 24) | (rgb & 0xFFFFFF), u.px(10));
     }
 
     /** A white icon whose wide glow is a colour of its own (the theme colour, the dust's band). */

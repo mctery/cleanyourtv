@@ -47,14 +47,19 @@ final class XmbWave implements GLSurfaceView.Renderer {
             + "out vec4 oColor;\n"
             + "uniform vec3 uColorStart;\n"
             + "uniform vec3 uColorEnd;\n"
+            // The boot animation's colour: how far it reaches from the middle band towards the top and bottom edges
+            // (0 black, past 1.35 everything; 99 when no animation runs).
+            + "uniform float uBloom;\n"
             + "void main() {\n"
             + "  float u = clamp(vUvYDown.y, 0.0, 1.0);\n"
             + "  float g = u * u * (3.0 - 2.0 * u);\n"
+            + "  float m = clamp((uBloom - abs(u - 0.5) * 2.0) / 0.35, 0.0, 1.0);\n"
+            + "  m = m * m * (3.0 - 2.0 * m);\n"
             // A dark gradient over 1080 lines has fewer 8-bit steps than lines and shows bands; half a step of
             // noise per pixel hides them.
             // Interleaved gradient noise: no sine per pixel, which over two million pixels a frame a small GPU feels.
             + "  float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;\n"
-            + "  oColor = vec4(mix(uColorStart, uColorEnd, g) + n / 255.0, 1.0);\n"
+            + "  oColor = vec4((mix(uColorStart, uColorEnd, g) + n / 255.0) * m, 1.0);\n"
             + "}\n";
     private static final String WAVE_VS = "#version 300 es\n"
             + "precision highp float;\n"
@@ -92,16 +97,23 @@ final class XmbWave implements GLSurfaceView.Renderer {
             + "in vec3 vPos;\n"
             + "out vec4 oColor;\n"
             + "uniform float opacity, brightness, fresnelPower, fresnelScale;\n"
+            // The boot animation: the lines are drawn up to uReveal (screen x, -1 to 1; 99 for all of them), uBoost
+            // times as bright, with a brighter head where they are being drawn.
+            + "uniform float uReveal, uBoost;\n"
             + "void main() {\n"
             + "  vec3 N = normalize(cross(dFdx(vPos), dFdy(vPos)));\n"
             + "  float F = fresnelScale * pow(1.0 + dot(vec3(0.0, 0.0, -1.0), N), fresnelPower);\n"
-            + "  oColor = vec4(vec3(1.0), F * opacity * brightness);\n"
+            + "  float shown = clamp((uReveal - vPos.x) / 0.12, 0.0, 1.0);\n"
+            + "  float h = (vPos.x - uReveal) / 0.07;\n"
+            + "  float head = exp(-h * h) * (uBoost - 1.0) * 0.8;\n"
+            + "  oColor = vec4(vec3(1.0), F * (opacity * brightness * uBoost + head) * shown);\n"
             + "}\n";
     private static final String PT_VS = "#version 300 es\n"
             + "precision highp float;\n"
             + "in vec3 aSeed;\n"
             + "uniform float uTime, flowSpeed, ratio, ptSizeBase, ptSizeVar;\n"
             + "out float vAlpha;\n"
+            + "out float vX;\n"
             + "void main() {\n"
             + "  gl_PointSize = aSeed.z * ptSizeVar + ptSizeBase;\n"
             + "  float time = uTime * flowSpeed;\n"
@@ -111,19 +123,24 @@ final class XmbWave implements GLSurfaceView.Renderer {
             + "  float opVar = mix(sin(time * (aSeed.x + 0.5) * 12.0 + aSeed.y * 10.0),\n"
             + "                    sin(time * (aSeed.y + 1.5) * 6.0 + aSeed.x * 4.0), y * 0.5 + 0.5) * aSeed.x + aSeed.y;\n"
             + "  vAlpha = opVar * opVar * (1.0 - fract(aSeed.x + time * 0.00285));\n"
+            + "  vX = x;\n"
             + "  gl_Position = vec4(x, y, 0.0, 1.0);\n"
             + "}\n";
     private static final String PT_FS = "#version 300 es\n"
             + "precision highp float;\n"
             + "in float vAlpha;\n"
+            + "in float vX;\n"
             + "out vec4 oColor;\n"
             + "uniform float particleOpacity;\n"
+            // The boot animation: sparkles only where the lines have been drawn, left behind them (uReveal as above).
+            + "uniform float uReveal, uBoost;\n"
             + "void main() {\n"
             + "  vec2 c = gl_PointCoord * 2.0 - 1.0;\n"
             + "  float d = dot(c, c);\n"
             + "  if (d > 1.0) discard;\n"
             + "  float sparkle = (1.0 - d) * (1.0 - d);\n"
-            + "  oColor = vec4(vec3(vAlpha * particleOpacity * sparkle), 1.0);\n"
+            + "  float shown = clamp((uReveal - vX) / 0.25, 0.0, 1.0);\n"
+            + "  oColor = vec4(vec3(vAlpha * particleOpacity * sparkle * uBoost * shown), 1.0);\n"
             + "}\n";
 
     private final XmbSpline spline = new XmbSpline();
@@ -146,7 +163,7 @@ final class XmbWave implements GLSurfaceView.Renderer {
     private float tSpline, tPart = new Random().nextFloat() * 1000f;
     private long lastNanos;
     private int frames;
-    private int uBgStart, uBgEnd, uWaveTime, uPtTime;
+    private int uBgStart, uBgEnd, uWaveTime, uPtTime, uBgBloom, uWaveReveal, uWaveBoost, uPtReveal, uPtBoost;
 
     /** RGB888 with 4x multisampling when the GPU offers it (cheap on a tile-based Mali), else the first RGB888. */
     static final class ConfigChooser implements GLSurfaceView.EGLConfigChooser {
@@ -240,6 +257,11 @@ final class XmbWave implements GLSurfaceView.Renderer {
         uBgEnd = GLES30.glGetUniformLocation(bgProg, "uColorEnd");
         uWaveTime = GLES30.glGetUniformLocation(waveProg, "uTime");
         uPtTime = GLES30.glGetUniformLocation(ptProg, "uTime");
+        uBgBloom = GLES30.glGetUniformLocation(bgProg, "uBloom");
+        uWaveReveal = GLES30.glGetUniformLocation(waveProg, "uReveal");
+        uWaveBoost = GLES30.glGetUniformLocation(waveProg, "uBoost");
+        uPtReveal = GLES30.glGetUniformLocation(ptProg, "uReveal");
+        uPtBoost = GLES30.glGetUniformLocation(ptProg, "uBoost");
         GLES30.glUseProgram(waveProg);
         set1i(waveProg, "uSplineTex", 0);
         set1f(waveProg, "flowSpeed", s.flowSpeed);
@@ -277,6 +299,65 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, name), v);
     }
 
+    // ---- the boot animation ---------------------------------------------------------------------------------
+
+    /** Told on the main thread as the boot animation reaches its marks. */
+    interface BootListener {
+        /** LINES: the lines start to be drawn; MENU: time for the menu; DONE: the wave is its own self again. */
+        void bootMark(int mark);
+    }
+
+    static final int LINES = 1, MENU = 2, DONE = 3;
+    private static final float BOOST = 2.6f, SPARK_BOOST = 1.8f;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private volatile BootListener bootListener;
+    /** Set by the UI thread: start the animation at the next frame / run what is left of it five times as fast. */
+    private volatile boolean bootRequested, bootSkip, bootCancel;
+    /** Black until the boot animation starts (Home hidden before the TV went to standby). */
+    private volatile boolean holdBlack;
+    /** Seconds into the boot animation, or -1 when none runs (only the GL thread touches it). */
+    private float bootClock = -1f;
+    private int bootMarks;
+
+    /**
+     * Plays the boot animation with the wave itself: black, then its lines drawn in white from the left edge to the
+     * right, a brighter head and sparkles left behind, then the colour spreading from the middle band to the top and
+     * bottom while the lines settle into the wave as it always is. Timed from its first frame (XmbStyle.BOOT_*).
+     */
+    void startBoot(BootListener listener) {
+        bootListener = listener;
+        bootSkip = false;
+        bootCancel = false;
+        bootRequested = true;
+    }
+
+    /** A key: what is left of the animation runs five times as fast. */
+    void skipBoot() {
+        bootSkip = true;
+    }
+
+    /** No animation now: the wave as it always is, at once (Home went behind an app). */
+    void endBoot() {
+        bootRequested = false;
+        holdBlack = false;
+        bootCancel = true;
+    }
+
+    /** Black from the next frame until startBoot (or endBoot). */
+    void holdBlack() {
+        holdBlack = true;
+    }
+
+    private static float ease(float k) {
+        k = Math.max(0f, Math.min(1f, k));
+        return k * k * (3f - 2f * k);
+    }
+
+    private void mark(int which) {
+        BootListener l = bootListener;
+        if (l != null) main.post(() -> l.bootMark(which));
+    }
+
     /** Frames drawn so far (the diagnostics panel shows the rate). */
     volatile int framesDrawn;
     /**
@@ -308,6 +389,47 @@ final class XmbWave implements GLSurfaceView.Renderer {
         tSpline += dt;
         tPart += dt;
 
+        // The boot animation's controls for this frame; neutral (everything shown, as bright as ever) without one.
+        float reveal = 99f, boost = 1f, spark = 1f, bloom = 99f;
+        if (bootCancel) {
+            bootCancel = false;
+            if (bootClock >= 0) mark(DONE);
+            bootClock = -1f;
+        }
+        if (bootRequested) {
+            bootRequested = false;
+            holdBlack = false;
+            bootClock = 0f;   // this frame is its start
+            bootMarks = 0;
+        } else if (bootClock >= 0) {
+            bootClock += bootSkip ? dt * 5f : dt;
+        }
+        if (bootClock >= 0) {
+            float ms = bootClock * 1000f;
+            if (ms >= XmbStyle.BOOT_LINES_AT_MS && (bootMarks & 1) == 0) {
+                bootMarks |= 1;
+                mark(LINES);
+            }
+            if (ms >= XmbStyle.BOOT_MENU_AT_MS && (bootMarks & 2) == 0) {
+                bootMarks |= 2;
+                mark(MENU);
+            }
+            float lines = ease((ms - XmbStyle.BOOT_LINES_AT_MS) / XmbStyle.BOOT_LINES_MS);
+            float colour = ease((ms - XmbStyle.BOOT_COLOUR_AT_MS) / XmbStyle.BOOT_COLOUR_MS);
+            if (colour >= 1f) {
+                bootClock = -1f;
+                mark(DONE);
+            } else {
+                reveal = ms < XmbStyle.BOOT_LINES_AT_MS ? -2f : -1.15f + 2.4f * lines;
+                boost = BOOST + (1f - BOOST) * colour;
+                spark = SPARK_BOOST + (1f - SPARK_BOOST) * colour;
+                bloom = 1.35f * colour;
+            }
+        } else if (holdBlack) {
+            reveal = -2f;
+            bloom = 0f;
+        }
+
         int c = color;
         float r = ((c >> 16) & 0xFF) / 255f, g = ((c >> 8) & 0xFF) / 255f, b = (c & 0xFF) / 255f;
         if (!ok) {
@@ -335,6 +457,7 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glUseProgram(bgProg);
         GLES30.glUniform3f(uBgStart, r * 0.09f, g * 0.09f, b * 0.09f * 1.2f);
         GLES30.glUniform3f(uBgEnd, r * 0.62f, g * 0.62f, b * 0.62f);
+        GLES30.glUniform1f(uBgBloom, bloom);
         GLES30.glBindVertexArray(bgVao);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
 
@@ -347,6 +470,8 @@ final class XmbWave implements GLSurfaceView.Renderer {
             GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, TEX_W, TEX_H, GLES30.GL_RED, GLES30.GL_HALF_FLOAT, heightBuf);
         }
         GLES30.glUniform1f(uWaveTime, tSpline);   // the rest were set once, in onSurfaceCreated
+        GLES30.glUniform1f(uWaveReveal, reveal);
+        GLES30.glUniform1f(uWaveBoost, boost);
         GLES30.glBindVertexArray(gridVao);
         GLES30.glDrawElements(GLES30.GL_TRIANGLE_STRIP, gridIndexCount, GLES30.GL_UNSIGNED_SHORT, 0);
 
@@ -354,6 +479,8 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE);
         GLES30.glUseProgram(ptProg);
         GLES30.glUniform1f(uPtTime, tPart);
+        GLES30.glUniform1f(uPtReveal, reveal);
+        GLES30.glUniform1f(uPtBoost, spark);
         GLES30.glBindVertexArray(ptVao);
         GLES30.glDrawArrays(GLES30.GL_POINTS, 0, PARTICLES);
         GLES30.glBindVertexArray(0);
