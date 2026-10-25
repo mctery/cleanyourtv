@@ -144,12 +144,16 @@ public class XmbActivity extends Activity {
         boolean tile;
         /** How bright layoutColumn last made the row: the intro brings it to that. */
         float alpha = 1f;
+        /** The glyph on screen (its drawable resource), to tell a changed one by; 0 for an app's art. */
+        int iconRes;
     }
 
     private static final class CatView {
         FrameLayout root;
         ImageView icon, glow;
         TextView label;
+        /** The icon on screen (its drawable resource), to tell a changed one by. */
+        int iconRes;
     }
 
     // ---- lifecycle -------------------------------------------------------------------------------------------
@@ -182,6 +186,12 @@ public class XmbActivity extends Activity {
         status.setLimits(cfg.xmb.lowBattery, cfg.xmb.lowStorageMb);
         statusPrefs = XmbStatusPrefs.load(this, cfg.xmb.status);
         status.setPrefs(statusPrefs);
+        // The connection changed (Wi-Fi up after the box starts): the Network category says so, soon.
+        status.setOnNetwork(() -> {
+            dirty = true;
+            handler.removeCallbacks(reloadLater);
+            if (resumed) handler.postDelayed(reloadLater, NETWORK_RELOAD_MS);
+        });
         XmbRecorder.listener = (running, message) -> {
             XmbDebug.log(running ? R.string.xmb_log_recording_started : R.string.xmb_log_recording_ended);
             status.refresh();
@@ -261,6 +271,9 @@ public class XmbActivity extends Activity {
             }
         }
     }
+
+    /** After a change of connection, the Network category is built again this soon (callbacks come in bursts). */
+    private static final long NETWORK_RELOAD_MS = 300;
 
     private final Runnable reloadLater = () -> {
         if (resumed && dirty) reload();
@@ -874,9 +887,11 @@ public class XmbActivity extends Activity {
         for (int i = 0; i < loaded.size() && i < was.size() && i < catViews.size(); i++) {
             XmbCatalog.Category before = was.get(i), now = loaded.get(i);
             CatView v = catViews.get(i);
-            if (!TextUtils.equals(before.label, now.label)) crossfade(v.label, () -> v.label.setText(now.label));
-            if (before.iconRes != now.iconRes) {
+            // Against what is on screen, not the last load: a change cut short earlier is made now.
+            if (!TextUtils.equals(v.label.getText(), now.label)) crossfade(v.label, () -> v.label.setText(now.label));
+            if (v.iconRes != now.iconRes) {
                 int at = i;
+                v.iconRes = now.iconRes;
                 crossfade(v.icon, () -> v.icon.setImageDrawable(now.icon.mutate()));
                 crossfade(v.glow, () -> applyCatGlow(at));
             }
@@ -885,17 +900,18 @@ public class XmbActivity extends Activity {
         List<XmbCatalog.Item> items = cats.get(cat).items;
         for (int i = 0; i < rows.size() && i < items.size(); i++) {
             Row r = rows.get(i);
-            XmbCatalog.Item before = r.item, now = items.get(i);
+            XmbCatalog.Item now = items.get(i);
             r.item = now;
-            if (!TextUtils.equals(before.title, now.title)) crossfade(r.title, () -> r.title.setText(now.title));
+            if (!TextUtils.equals(r.title.getText(), now.title)) crossfade(r.title, () -> r.title.setText(now.title));
             if (!TextUtils.equals(r.detail.getText(), now.detail)) {
                 if (now.pkg == null && r.detail.getVisibility() == View.VISIBLE) {
                     crossfade(r.detail, () -> r.detail.setText(now.detail));
                 } else {
-                    r.detail.setText(now.detail);
+                    setNow(r.detail, now.detail);
                 }
             }
-            if (!r.tile && before.iconRes != now.iconRes) {
+            if (!r.tile && r.iconRes != now.iconRes) {
+                r.iconRes = now.iconRes;
                 ImageView glyph = (ImageView) r.thumbBox.getChildAt(1);
                 crossfade(glyph, () -> glyph.setImageDrawable(now.icon.mutate()));
                 crossfade(r.glow, () -> applyRowGlow(r));
@@ -903,15 +919,34 @@ public class XmbActivity extends Activity {
         }
     }
 
-    /** Fades a view out, makes the change, fades it back to the light it had; at once without animations. */
+    /** Text set at once, which a cross-fade still under way on the view must not overwrite afterwards. */
+    private static void setNow(TextView t, CharSequence text) {
+        t.setTag(R.id.xmb_pending, null);
+        t.setText(text);
+    }
+
+    /**
+     * Fades a view out, makes the change, fades it back to the light it had; at once without animations. The change is
+     * made even when another animation of the view cuts the fade short (layoutColumn, settle: the Network item kept
+     * "Offline" after Wi-Fi came up), and only the latest of two quick changes to one view is made.
+     */
     private void crossfade(View v, Runnable change) {
-        if (animMs == 0) {
+        Object token = new Object();
+        v.setTag(R.id.xmb_pending, token);
+        Runnable apply = () -> {
+            if (v.getTag(R.id.xmb_pending) != token) return;
+            v.setTag(R.id.xmb_pending, null);
             change.run();
+        };
+        if (animMs == 0) {
+            apply.run();
             return;
         }
         float to = v.getAlpha();
+        later.postDelayed(apply, CHANGE_OUT_MS + 100);   // the fade cut short: the change all the same
         v.animate().alpha(0f).setStartDelay(0).setDuration(CHANGE_OUT_MS).setInterpolator(null).withEndAction(() -> {
-            change.run();
+            later.removeCallbacks(apply);
+            apply.run();
             v.animate().alpha(to).setStartDelay(0).setDuration(CHANGE_IN_MS).setInterpolator(ease).start();
         }).start();
     }
@@ -1021,6 +1056,7 @@ public class XmbActivity extends Activity {
             v.glow.setAlpha(0f);
             v.icon = place(v.root, new ImageView(this), (SLOT - CAT_BOX) / 2, top, CAT_BOX, CAT_BOX);
             v.icon.setImageDrawable(c.icon.mutate());
+            v.iconRes = c.iconRes;
             int pad = px(13 * CAT_ZOOM);
             v.icon.setPadding(pad, pad, pad, pad);
             v.icon.setImageTintList(tint(INK_FAINT));
@@ -1180,6 +1216,7 @@ public class XmbActivity extends Activity {
             r.ring.setAlpha(0f);
         } else {
             thumb.setImageDrawable(item.icon.mutate());
+            r.iconRes = item.iconRes;
             int pad = px(18);
             thumb.setPadding(pad, pad, pad, pad);
         }
@@ -2302,7 +2339,7 @@ public class XmbActivity extends Activity {
             updateAccent();
             if (!rows.isEmpty()) {
                 Row r = selectedRow();
-                r.detail.setText(r.item.detail);
+                setNow(r.detail, r.item.detail);
             }
             if (!quiet) reload();
         }
@@ -2331,7 +2368,7 @@ public class XmbActivity extends Activity {
     private void setSelectedDetail(String text) {
         if (rows.isEmpty()) return;
         Row r = selectedRow();
-        r.detail.setText(text);
+        setNow(r.detail, text);
         r.detail.setVisibility(View.VISIBLE);
     }
 
@@ -2671,7 +2708,7 @@ public class XmbActivity extends Activity {
     private void setItemDetail(String key, String text) {
         for (Row r : rows) {
             if (!r.item.key.equals(key)) continue;
-            r.detail.setText(text);
+            setNow(r.detail, text);
             if (r == selectedRow()) r.detail.setVisibility(View.VISIBLE);
         }
     }

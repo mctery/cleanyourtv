@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- XMB home: the change a cross-fade is about to make on a view (XmbActivity.crossfade), so only the latest runs. -->
+    <item name="xmb_pending" type="id" />
+</resources>

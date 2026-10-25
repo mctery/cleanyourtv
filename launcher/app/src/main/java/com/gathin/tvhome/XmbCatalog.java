@@ -593,6 +593,7 @@ final class XmbCatalog {
     /** The connection (network name and address), the speed test and the Private DNS in use. */
     private static void addNetwork(Context ctx, Intent wifi, List<Item> out) {
         XmbNet net = XmbNet.read(ctx);
+        XmbNet.inCatalog = XmbNet.key(net);
         String title, detail = net.ip != null ? ctx.getString(R.string.xmb_connected, net.ip) : "";
         int glyph;
         switch (net.kind) {

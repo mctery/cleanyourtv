@@ -143,20 +143,22 @@ final class XmbStatus {
             netCallback = new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
-                    XmbNet.forget();
-                    refreshSoon();
+                    networkChanged();
                 }
 
                 @Override
                 public void onLost(Network network) {
-                    XmbNet.forget();
-                    refreshSoon();
+                    networkChanged();
                 }
 
                 @Override
                 public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
-                    XmbNet.forget();
-                    refreshSoon();
+                    networkChanged();
+                }
+
+                @Override
+                public void onLinkPropertiesChanged(Network network, android.net.LinkProperties lp) {
+                    networkChanged();   // an address from DHCP, a Private DNS taking over
                 }
             };
             cm.registerDefaultNetworkCallback(netCallback, handler);
@@ -192,6 +194,30 @@ final class XmbStatus {
         XmbRemoteBattery.refresh(act, this::refreshSoon);
         scheduleSpeed();
         refresh();
+        handler.postDelayed(netCheck, 1000);   // the connection may have changed since the menu was built
+    }
+
+    /** Told when the connection is no longer the one the Network category shows (Wi-Fi up after the box starts). */
+    private Runnable onNetwork;
+
+    void setOnNetwork(Runnable r) {
+        onNetwork = r;
+    }
+
+    private void networkChanged() {
+        XmbNet.forget();
+        refreshSoon();
+        handler.removeCallbacks(netCheck);
+        handler.postDelayed(netCheck, 500);
+    }
+
+    private final Runnable netCheck = this::checkNetwork;
+
+    private void checkNetwork() {
+        String shown = XmbNet.inCatalog;
+        if (started && onNetwork != null && shown != null && !shown.equals(XmbNet.key(XmbNet.read(act)))) {
+            onNetwork.run();
+        }
     }
 
     void stop() {
@@ -201,6 +227,7 @@ final class XmbStatus {
         handler.removeCallbacks(refreshRunnable);
         handler.removeCallbacks(rebindRunnable);
         handler.removeCallbacks(speedTick);
+        handler.removeCallbacks(netCheck);
         rxLast = -1;
         rate = 0f;
         busy = false;

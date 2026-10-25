@@ -40,6 +40,13 @@ final class XmbNet {
 
     private static XmbNet last;
     private static long lastAt;
+    /** The connection the Network category was last built with (key), or null before it was. */
+    static volatile String inCatalog;
+
+    /** What the Network category shows of a connection: its kind, name, address and Private DNS. */
+    static String key(XmbNet n) {
+        return n.kind + "|" + n.ssid + "|" + n.ip + "|" + n.privateDns;
+    }
 
     /**
      * The connection, read at most every three seconds: the status row and the Network category both ask as Home
