@@ -39,6 +39,8 @@ final class XmbMusic {
     /** Home is in front and wants the music; the player follows with a fade. */
     private boolean wanted;
     private AudioFocusRequest focus;
+    /** Another app took the sound for good (not just for a moment): give the focus back once silent. */
+    private boolean lostForGood;
 
     XmbMusic(Context ctx, Handler handler) {
         this.ctx = ctx.getApplicationContext();
@@ -109,11 +111,11 @@ final class XmbMusic {
             // Someone else's music (a cast, an app playing in the background): leave the room to it.
             if (audio != null && audio.isMusicActive()) return;
             if (!requestFocus()) return;
+            lostForGood = false;
             if (current == null) {
-                current = player();
+                current = player(false);
                 if (current == null) return;
-                next = player();
-                if (next != null) current.setNextMediaPlayer(next);
+                next = player(true);
             }
             setVolume(volume);
             current.start();
@@ -121,15 +123,26 @@ final class XmbMusic {
         fadeTo(LEVELS[level]);
     }
 
-    private MediaPlayer player() {
+    /**
+     * A player for the file. The next one in the loop is prepared off the main thread (prepareAsync) and handed to
+     * the current one when ready: preparing it at the loop's end on the main thread made the menu and wave hitch.
+     */
+    private MediaPlayer player(boolean async) {
         try {
             MediaPlayer p = new MediaPlayer();
-            p.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            p.setAudioAttributes(attributes());
             p.setDataSource(file.getAbsolutePath());
-            p.prepare();
-            p.setVolume(volume, volume);
             p.setOnCompletionListener(this::handOver);
+            if (async) {
+                p.setOnPreparedListener(mp -> {
+                    mp.setVolume(volume, volume);
+                    if (mp == next && current != null) current.setNextMediaPlayer(mp);
+                });
+                p.prepareAsync();
+            } else {
+                p.prepare();
+                p.setVolume(volume, volume);
+            }
             return p;
         } catch (Exception e) {
             Log.w(TAG, "cannot play " + file + ": " + e);
@@ -142,8 +155,23 @@ final class XmbMusic {
         if (done != current) return;
         done.release();
         current = next;
-        next = player();
-        if (current != null && next != null) current.setNextMediaPlayer(next);
+        next = player(true);
+    }
+
+    private static AudioAttributes attributes() {
+        return new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
+    }
+
+    /** Home is hidden and memory is wanted: let the players go (the loop starts again from its top next time). */
+    void releasePlayers() {
+        if (wanted) return;
+        handler.removeCallbacks(fade);
+        abandonFocus();
+        if (current != null) current.release();
+        if (next != null) next.release();
+        current = next = null;
+        volume = 0f;
     }
 
     private void fadeTo(float to) {
@@ -162,7 +190,8 @@ final class XmbMusic {
                 handler.postDelayed(this, STEP_MS);
             } else if (volume == 0f && current != null && current.isPlaying()) {
                 current.pause();
-                abandonFocus();
+                // A moment's interruption keeps the request, so Android hands the sound back (AUDIOFOCUS_GAIN).
+                if (!wanted || lostForGood) abandonFocus();
             }
         }
     };
@@ -176,11 +205,13 @@ final class XmbMusic {
         if (audio == null) return true;
         if (focus == null) {
             focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioAttributes(attributes())
                     .setOnAudioFocusChangeListener(change -> {
                         // Anything else that wants to sound (the assistant, a cast, an alert) has the room.
-                        if (change < 0) {
+                        if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                            fadeTo(LEVELS[level] * 0.3f);
+                        } else if (change < 0) {
+                            lostForGood = change == AudioManager.AUDIOFOCUS_LOSS;
                             handler.removeCallbacks(startRunnable);
                             fadeTo(0f);
                         } else if (change == AudioManager.AUDIOFOCUS_GAIN && wanted) {

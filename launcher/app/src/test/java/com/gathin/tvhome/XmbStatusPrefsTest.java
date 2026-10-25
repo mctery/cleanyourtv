@@ -1,0 +1,75 @@
+package com.gathin.tvhome;
+
+import org.junit.Test;
+
+import java.util.Arrays;
+import java.util.Collections;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+public class XmbStatusPrefsTest {
+    @Test public void standardIsTheShippedRow() {
+        XmbStatusPrefs p = XmbStatusPrefs.fromConfig(Collections.emptyList());
+        assertEquals(XmbStatusPrefs.STANDARD, p.preset);
+        assertEquals(XmbStatusPrefs.AUTO, p.mode("adb"));
+        assertEquals(XmbStatusPrefs.ALWAYS, p.mode("weather"));
+        assertEquals(XmbStatusPrefs.HIDDEN, p.mode("temperature"));
+        assertEquals(XmbStatusPrefs.defaultOrder(), p.order);
+    }
+
+    @Test public void presetsGoRoundAndSetModes() {
+        XmbStatusPrefs p = XmbStatusPrefs.preset(XmbStatusPrefs.STANDARD, XmbStatusPrefs.defaultOrder(), false);
+        XmbStatusPrefs simple = p.nextPreset();
+        assertEquals(XmbStatusPrefs.SIMPLE, simple.preset);
+        assertEquals(XmbStatusPrefs.HIDDEN, simple.mode("weather"));
+        assertEquals(XmbStatusPrefs.ALWAYS, simple.mode("network"));
+        XmbStatusPrefs full = simple.nextPreset();
+        assertEquals(XmbStatusPrefs.ALWAYS, full.mode("battery"));
+        assertEquals(XmbStatusPrefs.ALWAYS, full.mode("temperature"));
+        XmbStatusPrefs clock = full.nextPreset();
+        assertEquals(XmbStatusPrefs.HIDDEN, clock.mode("network"));
+        assertEquals(XmbStatusPrefs.AUTO, clock.mode("recording"));   // a recording always says so
+        assertEquals(XmbStatusPrefs.STANDARD, clock.nextPreset().preset);
+    }
+
+    @Test public void changingAModeMakesItCustomUnlessItMatchesAPreset() {
+        XmbStatusPrefs p = XmbStatusPrefs.preset(XmbStatusPrefs.STANDARD, XmbStatusPrefs.defaultOrder(), false);
+        XmbStatusPrefs q = p.nextMode("weather");
+        assertEquals(XmbStatusPrefs.HIDDEN, q.mode("weather"));
+        assertEquals(XmbStatusPrefs.CUSTOM, q.preset);
+        assertEquals(XmbStatusPrefs.STANDARD, q.nextMode("weather").preset);
+        assertEquals(p.modes, p.nextMode("recording").modes);   // one mode only: nothing to change
+    }
+
+    @Test public void moveAndRoundTrip() {
+        XmbStatusPrefs p = XmbStatusPrefs.preset(XmbStatusPrefs.FULL, XmbStatusPrefs.defaultOrder(), true)
+                .moved("palette", -1);
+        assertEquals("palette", p.order.get(p.order.size() - 2));
+        XmbStatusPrefs back = XmbStatusPrefs.decode(p.encode());
+        assertEquals(p.order, back.order);
+        assertEquals(p.modes, back.modes);
+        assertTrue(back.keepOnIdle);
+        assertEquals(XmbStatusPrefs.FULL, back.preset);
+        assertNull(XmbStatusPrefs.decode("garbage"));
+    }
+
+    @Test public void themeEntriesKeepTheirOrderAndUnknownOnesDrop() {
+        XmbStatusPrefs p = XmbStatusPrefs.fromConfig(Arrays.asList("network=always", "nonsense=always", "weather=hidden",
+                "battery=sideways"));
+        // the listed ones in the order given; the rest keep their default places around them
+        assertEquals(p.order.indexOf("network") + 1, p.order.indexOf("weather"));
+        assertEquals("recording", p.order.get(0));
+        assertFalse(p.order.contains("nonsense"));
+        assertEquals(XmbStatusPrefs.ITEMS.size(), p.order.size());
+        assertEquals(XmbStatusPrefs.HIDDEN, p.mode("weather"));
+        assertEquals(XmbStatusPrefs.AUTO, p.mode("battery"));      // not a mode it has: its default
+        assertEquals(XmbStatusPrefs.CUSTOM, p.preset);
+    }
+
+    @Test public void missingKeysGoBackNearTheirDefaultNeighbours() {
+        assertEquals(XmbStatusPrefs.defaultOrder(), XmbStatusPrefs.complete(Arrays.asList("network")));
+    }
+}

@@ -60,6 +60,19 @@ Android reports for a paired input device or, where it reports none (an LE remot
 S), the level Home reads from the remote's own Battery Service: at most every six hours, over a GATT connection of
 its own beside Android's, closed again at once.
 
+Settings > Status bar chooses what the row shows: a look (Standard, Simple, Everything, Clock only), each item
+always, only when there is something to say, or hidden (OK goes round them and the row changes at once), the order
+(OK picks an item up, Up and Down move it, OK puts it down), and whether the clock and the row stay on the wave when
+the menu fades. The box's temperature, when the firmware lets apps read it, is one of the items (hidden by default).
+From a computer: `"xmb_status": ["network=always", "weather=hidden"]`; a setup made on the TV wins.
+
+## Diagnostics
+
+Settings > Diagnostics records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
+the status row; the video goes to `Movies/XMB`, 1280x720) and switches on an event panel: the wave's frame rate and
+the latest of what changed the screen (a rebuild of the cross-bar and why, an icon added to or gone from the row,
+focus and screensaver changes, wave frames that came late). The same lines go to logcat as `TvHome.Debug`.
+
 ## Theme colour
 
 Settings > Theme colour opens a list right of the column: Monthly (a colour for each month, the default), the

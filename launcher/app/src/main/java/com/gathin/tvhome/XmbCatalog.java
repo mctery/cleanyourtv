@@ -78,6 +78,11 @@ final class XmbCatalog {
      */
     private static final Map<String, Art> ART = new HashMap<>();
 
+    /** Memory is short and Home is in the background: the art is decoded again on the next load. */
+    static void trim() {
+        ART.clear();
+    }
+
     static final class Item {
         /** Stable identity for remembering the selection: the component, or "sys:<name>" for a built-in item. */
         final String key;
@@ -112,19 +117,40 @@ final class XmbCatalog {
         final String key;
         final String label;
         final Drawable icon;
+        /** The icon's resource, so two loads can be compared ({@link #signature}). */
+        final int iconRes;
         final List<Item> items;
 
-        Category(String key, String label, Drawable icon, List<Item> items) {
+        Category(String key, String label, Drawable icon, int iconRes, List<Item> items) {
             this.key = key;
             this.label = label;
             this.icon = icon;
+            this.iconRes = iconRes;
             this.items = items;
         }
     }
 
+    /**
+     * Everything a load puts on screen, as text: two loads with the same signature look the same, so Home need not
+     * rebuild (a package broadcast for an app it does not show, say, would otherwise redraw the cross-bar).
+     */
+    static String signature(List<Category> cats) {
+        StringBuilder sb = new StringBuilder();
+        for (Category c : cats) {
+            sb.append(c.key).append('|').append(c.label).append('|').append(c.iconRes).append('\n');
+            for (Item i : c.items) {
+                // An app's detail ("last opened ...") changes by the minute and is updated in place; a built-in
+                // item's detail is a setting's value and counts.
+                sb.append(' ').append(i.key).append('|').append(i.title).append('|').append(i.pkg == null ? i.detail : "")
+                        .append('|').append(i.banner != null).append('|').append(i.action).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
     /** Built-in actions run by XmbActivity. */
     static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds", ACTION_MUSIC = "music", ACTION_COLOR = "color",
-            ACTION_MENUS = "menus";
+            ACTION_MENUS = "menus", ACTION_STATUS = "status", ACTION_DIAG = "diagnostics";
 
     /** What the Settings category says about the XMB's own settings. */
     static final class SettingsState {
@@ -326,6 +352,10 @@ final class XmbCatalog {
                 ctx.getDrawable(R.drawable.ic_xmb_palette), true, null, null, ACTION_COLOR));
         settings.add(new Item("sys:menus", ctx.getString(R.string.xmb_menus), ctx.getString(R.string.xmb_menus_detail),
                 null, ctx.getDrawable(R.drawable.ic_xmb_dashboard_customize), true, null, null, ACTION_MENUS));
+        settings.add(new Item("sys:status", ctx.getString(R.string.xmb_status_bar), ctx.getString(R.string.xmb_status_bar_detail),
+                null, ctx.getDrawable(R.drawable.ic_xmb_tune), true, null, null, ACTION_STATUS));
+        settings.add(new Item("sys:diagnostics", ctx.getString(R.string.xmb_diag), ctx.getString(R.string.xmb_diag_detail),
+                null, ctx.getDrawable(R.drawable.ic_xmb_monitor_heart), true, null, null, ACTION_DIAG));
 
         addNetwork(ctx, pm, settingsPkg, byCat.get(NETWORK));
 
@@ -337,7 +367,7 @@ final class XmbCatalog {
                 items.add(new Item("sys:empty", ctx.getString(R.string.xmb_menu_empty),
                         ctx.getString(R.string.xmb_menu_empty_detail), null, ctx.getDrawable(icon), true, null, null, null));
             }
-            if (!items.isEmpty()) out.add(new Category(m.key, label(ctx, m), ctx.getDrawable(icon), items));
+            if (!items.isEmpty()) out.add(new Category(m.key, label(ctx, m), ctx.getDrawable(icon), icon, items));
         }
         return out;
     }

@@ -53,23 +53,39 @@ final class XmbRemoteBattery {
     static void refresh(Context ctx, Runnable changed) {
         long now = System.currentTimeMillis();
         if (now - lastAttempt < EVERY_MS) return;
-        lastAttempt = now;
         Context app = ctx.getApplicationContext();
         Handler main = new Handler(Looper.getMainLooper());
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
             if (adapter == null || !adapter.isEnabled()) return;
+            BluetoothDevice remote = null;
             for (BluetoothDevice d : adapter.getBondedDevices()) {
                 BluetoothClass c = d.getBluetoothClass();
                 int major = c != null ? c.getMajorDeviceClass() : BluetoothClass.Device.Major.UNCATEGORIZED;
                 if (major == BluetoothClass.Device.Major.AUDIO_VIDEO) continue;
                 if (d.getType() != BluetoothDevice.DEVICE_TYPE_LE && d.getType() != BluetoothDevice.DEVICE_TYPE_DUAL) continue;
-                read(app, d, main, changed);
-                return;   // the first LE input device: the remote
+                if (offersHid(d)) {
+                    remote = d;     // a remote, keyboard or pad: it types over Bluetooth (HID over GATT)
+                    break;
+                }
+                if (remote == null) remote = d;   // UUIDs not cached yet: the first LE input-like device
             }
+            if (remote == null) return;
+            lastAttempt = now;
+            read(app, remote, main, changed);
         } catch (RuntimeException e) {
             Log.i(TAG, "not read: " + e);
         }
+    }
+
+    private static final android.os.ParcelUuid HID = android.os.ParcelUuid.fromString("00001812-0000-1000-8000-00805f9b34fb");
+
+    @SuppressLint("MissingPermission")
+    private static boolean offersHid(BluetoothDevice d) {
+        android.os.ParcelUuid[] uuids = d.getUuids();
+        if (uuids == null) return false;
+        for (android.os.ParcelUuid u : uuids) if (HID.equals(u)) return true;
+        return false;
     }
 
     @SuppressLint("MissingPermission")

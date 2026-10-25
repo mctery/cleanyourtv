@@ -19,6 +19,7 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
 import android.os.Handler;
@@ -95,6 +96,9 @@ public class XmbActivity extends Activity {
     private List<XmbMenus.Menu> menus = Collections.emptyList();
     /** The colour shown while the owner moves through the theme colours; null otherwise. */
     private String previewColor;
+    private XmbStatusPrefs statusPrefs;
+    /** The last catalog shown, as text: a reload that would show the same is skipped (XmbCatalog.signature). */
+    private String shownSignature;
     private XmbWave wave;
     private GLSurfaceView waveView;
     private boolean reducedMotion;
@@ -169,6 +173,13 @@ public class XmbActivity extends Activity {
         extraLight = getResources().getFont(R.font.outfit_extralight);
         status = new XmbStatus(this, this::px, extraLight, new Handler(Looper.getMainLooper()));
         status.setMotion(!reducedMotion);
+        statusPrefs = XmbStatusPrefs.load(this, cfg.xmbStatus);
+        status.setPrefs(statusPrefs);
+        XmbRecorder.listener = (running, message) -> {
+            XmbDebug.log(running ? "recording started" : "recording ended");
+            status.refresh();
+            if (message != null) showToast(message);
+        };
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -196,6 +207,18 @@ public class XmbActivity extends Activity {
         root.addView(ui, new FrameLayout.LayoutParams(-1, -1));
         buildChrome();
         setContentView(root);
+        debugPanel = new TextView(this);
+        debugPanel.setTypeface(Typeface.MONOSPACE);
+        debugPanel.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(17));
+        debugPanel.setTextColor(0xE6FFFFFF);
+        debugPanel.setBackgroundColor(0xB3000000);
+        debugPanel.setPadding(px(16), px(10), px(16), px(10));
+        debugPanel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(px(860), -2, Gravity.BOTTOM | Gravity.START);
+        dlp.leftMargin = px(30);
+        dlp.bottomMargin = px(30);
+        root.addView(debugPanel, dlp);
+        setDebugPanel(prefs().getBoolean(PREF_DEBUG_PANEL, false));
 
         IntentFilter pkgs = new IntentFilter();
         pkgs.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -229,11 +252,23 @@ public class XmbActivity extends Activity {
         }
     }
 
+    private final Runnable reloadLater = () -> {
+        if (resumed && dirty) reload();
+    };
+
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            Uri data = intent.getData();
+            XmbDebug.log("package " + intent.getAction().replace("android.intent.action.PACKAGE_", "").toLowerCase(Locale.ROOT)
+                    + " " + (data != null ? data.getSchemeSpecificPart() : "?"));
+            // An update sends REMOVED (replacing) then ADDED: only the second one matters.
+            if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())
+                    && intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return;
             dirty = true;
-            if (resumed) reload();
+            // Play Store updates come in bursts: one reload after they settle, not one per broadcast.
+            handler.removeCallbacks(reloadLater);
+            if (resumed) handler.postDelayed(reloadLater, 1500);
         }
     };
 
@@ -246,6 +281,7 @@ public class XmbActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             dreaming = Intent.ACTION_DREAMING_STARTED.equals(intent.getAction());
+            XmbDebug.log(dreaming ? "screensaver started" : "screensaver ended");
             if (dreaming) music.pause();
             else if (resumed) music.resume(500);
             if (waveView == null) return;
@@ -284,10 +320,11 @@ public class XmbActivity extends Activity {
         if (jingle) sounds.play(XmbSounds.OPENING);
         openingPlayed = true;
         status.start();
+        if (debugPanel.getVisibility() == View.VISIBLE) setDebugPanel(true);
         if (!dreaming) music.resume(jingle ? 7000 : 1200);
         if (introDue) playIntro(jingle);
         else if (returnDue) playReturn();
-        else if (pendingAnim != null || (ui.getAlpha() < 1f && !idle) || top.getAlpha() < 1f) settle();
+        else if (pendingAnim != null || launching) settle();
         introDue = returnDue = false;
     }
 
@@ -299,6 +336,8 @@ public class XmbActivity extends Activity {
         closePrompt();
         status.stop();
         music.pause();
+        toast.animate().cancel();
+        toast.setAlpha(0f);
         handler.removeCallbacksAndMessages(null);
         if (waveView != null) waveView.onPause();
         super.onPause();
@@ -307,6 +346,7 @@ public class XmbActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        XmbDebug.log(hasFocus ? "window focus back" : "window focus lost");
         if (resumed && !dreaming) {
             if (hasFocus) music.resume(300);
             else if (prompt == null || prompt.getVisibility() != View.VISIBLE) music.pause();
@@ -321,6 +361,39 @@ public class XmbActivity extends Activity {
         }
     }
 
+    /**
+     * Gives memory back while an app is in front: the music players, the cached glows and selection light (drawn
+     * again on return), and under more pressure the decoded app art (reloaded with the next load).
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= TRIM_MEMORY_UI_HIDDEN) {
+            music.releasePlayers();
+            status.trim();
+            selLight = null;
+            tileGlow = null;
+        }
+        if (level >= TRIM_MEMORY_BACKGROUND) {
+            XmbCatalog.trim();
+            dirty = true;
+            shownSignature = null;
+        }
+    }
+
+    /**
+     * A remote reconnecting, an HDMI mode change or a new language: handled here instead of recreating Home (which
+     * replayed the intro with no key pressed). Texts are reloaded; a language change gets new strings that way.
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        XmbDebug.log("configuration changed");
+        dirty = true;
+        shownSignature = null;
+        if (resumed) reload();
+    }
+
     @Override
     protected void onStop() {
         stopped = true;
@@ -333,6 +406,8 @@ public class XmbActivity extends Activity {
         unregisterReceiver(dreamReceiver);
         sounds.release();
         music.release();
+        XmbRecorder.listener = null;
+        XmbDebug.listener = null;
         super.onDestroy();
     }
 
@@ -554,6 +629,8 @@ public class XmbActivity extends Activity {
         clockColon.setText(":");
         clockColon.setPadding(px(2), 0, px(2), 0);
         clockM = text(extraLight, 50, INK);
+        clockH.setFontFeatureSettings("tnum");   // equal-width digits: the clock and the row beside it keep still
+        clockM.setFontFeatureSettings("tnum");
         time.addView(clockH);
         time.addView(clockColon);
         time.addView(clockM);
@@ -625,7 +702,8 @@ public class XmbActivity extends Activity {
             // A step, not a fade: a fade redraws the whole screen 60 times a second for one character.
             colonDim = !colonDim;
             clockColon.setAlpha(colonDim ? 0.25f : 1f);
-            if (resumed) handler.postDelayed(this, 500);
+            // Faded out to the wave (and the clock not kept on screen): nothing to blink for.
+            if (resumed && !(idle && !statusPrefs.keepOnIdle)) handler.postDelayed(this, 500);
         }
     };
 
@@ -651,7 +729,6 @@ public class XmbActivity extends Activity {
 
     private void reload() {
         dirty = false;
-        closeOptions();
         if (cat >= 0 && cat < cats.size()) selectedCat = cats.get(cat).key;
         menus = XmbMenus.load(this, cfg.xmbMenus);
         XmbCatalog.SettingsState state = new XmbCatalog.SettingsState();
@@ -660,12 +737,36 @@ public class XmbActivity extends Activity {
         state.musicAvailable = music.available();
         state.musicLevel = music.level();
         state.colorName = colorName(colorMode());
-        cats = XmbCatalog.load(this, cfg, menus, state);
+        List<XmbCatalog.Category> loaded = XmbCatalog.load(this, cfg, menus, state);
+        String sig = XmbCatalog.signature(loaded);
+        if (sig.equals(shownSignature) && !catViews.isEmpty()) {
+            // The same apps and items: only lines such as "last opened" may differ, and they change in place.
+            refreshDetails(loaded);
+            XmbDebug.log("reload: nothing to rebuild");
+            return;
+        }
+        XmbDebug.log("reload: rebuilt (" + loaded.size() + " categories" + (loaded.size() != cats.size() ? ", was " + cats.size() : "") + ")");
+        closeOptions();   // only now: an unchanged reload (an app updating in the background) leaves the menu open
+        shownSignature = sig;
+        cats = loaded;
         buildCategories();
+        if (sideVisible()) dimOtherCategories(true);
         int target = indexOfCat(selectedCat);
         if (target < 0) target = Math.max(0, indexOfCat(XmbCatalog.VIDEO));
         cat = -1;
         selectCategory(target, true);
+    }
+
+    /** Same categories and items as on screen: take the new items (their detail lines) without rebuilding a view. */
+    private void refreshDetails(List<XmbCatalog.Category> loaded) {
+        cats = loaded;
+        if (cat < 0 || cat >= cats.size()) return;
+        List<XmbCatalog.Item> items = cats.get(cat).items;
+        for (int i = 0; i < rows.size() && i < items.size(); i++) {
+            Row r = rows.get(i);
+            r.item = items.get(i);
+            if (!TextUtils.equals(r.detail.getText(), r.item.detail)) r.detail.setText(r.item.detail);
+        }
     }
 
     private int indexOfCat(String key) {
@@ -718,14 +819,32 @@ public class XmbActivity extends Activity {
         v.glow.setScaleType(ImageView.ScaleType.CENTER);
     }
 
+    private static final int FADE_ON = 1, FADE_NONE = 2;
+
+    /** A move with a key: the column cross-fades, except while the key repeats (FADE_NONE: no pile of fading columns). */
+    private void selectCategory(int index, int fade) {
+        selectCategory(index, false, fade == FADE_ON);
+    }
+
+    private float catsHomeX() {
+        return px(AX - (cat * SLOT + SLOT / 2));
+    }
+
     private void selectCategory(int index, boolean instant) {
+        selectCategory(index, instant, !instant);
+    }
+
+    private void selectCategory(int index, boolean instant, boolean fadeColumn) {
         if (index < 0 || index >= cats.size()) return;
         nudgeToken++;
         boolean changed = index != cat;
         cat = index;
         selectedCat = cats.get(cat).key;
         float tx = px(AX - (index * SLOT + SLOT / 2));
-        if (instant || animMs == 0) catsRow.setTranslationX(tx);
+        if (instant || animMs == 0) {
+            catsRow.animate().cancel();
+            catsRow.setTranslationX(tx);
+        }
         else catsRow.animate().translationX(tx).setDuration(animMs).setInterpolator(ease).start();
         for (int i = 0; i < catViews.size(); i++) {
             CatView v = catViews.get(i);
@@ -735,7 +854,7 @@ public class XmbActivity extends Activity {
             animate(v.glow, sel ? 1f : 0f, sel ? 1f : 1f / CAT_ZOOM, instant);
             animate(v.label, sel ? 1f : 0f, 1f, instant);
         }
-        if (changed || instant) buildColumn(!instant);
+        if (changed || instant) buildColumn(fadeColumn);
         if (changed && !instant && !rows.isEmpty()) {
             announce(cats.get(cat).label + ", " + rows.get(Math.min(selectedIndex(), rows.size() - 1)).item.title);
         }
@@ -765,13 +884,17 @@ public class XmbActivity extends Activity {
         column.setClipChildren(false);
         ui.addView(column, ui.indexOfChild(old) + 1, new FrameLayout.LayoutParams(-1, -1));
         if (fade && animMs > 0) {
-            old.animate().alpha(0f).setDuration(120).withEndAction(() -> ui.removeView(old)).start();
+            // setStartDelay(0): a view's animator keeps the last start delay, and the intro gives the column one of
+            // 650 ms; the first category switch after it then left the old column up beside the new one (the icons
+            // seen doubled after boot).
+            old.animate().alpha(0f).setStartDelay(0).setDuration(120).withEndAction(() -> ui.removeView(old)).start();
             column.setAlpha(0f);
             column.setTranslationX(px(-16));
             column.animate().alpha(1f).translationX(0).setDuration(200).setInterpolator(ease).start();
         } else {
             ui.removeView(old);
         }
+        if (idle && statusPrefs.keepOnIdle) column.setAlpha(0f);
         rows.clear();
         selBar = place(column, new ImageView(this), AX - SEL_X, 0, SEL_W, SEL_H);
         selBar.setImageBitmap(selectionLight());
@@ -785,6 +908,8 @@ public class XmbActivity extends Activity {
         r.tile = item.banner != null || !item.glyph;
         r.root = new FrameLayout(this);
         r.root.setClipChildren(false);
+        // Faded rows are drawn straight, without an offscreen pass each: their glow is off, nothing overlaps.
+        r.root.forceHasOverlappingRendering(false);
         place(column, r.root, 0, 0, 1920, ROW_H);
 
         float w = r.tile ? THUMB_W : GLYPH, h = r.tile ? THUMB_H : GLYPH;
@@ -930,7 +1055,8 @@ public class XmbActivity extends Activity {
         } else {
             selBar.animate().translationY(barY).setDuration(animMs).setInterpolator(ease).start();
         }
-        selectedKey.put(cats.get(cat).key, rows.get(sel).item.key);
+        // putIfAbsent: an item missing for one load (an app mid-update) must not lose the owner's place for good.
+        selectedKey.putIfAbsent(cats.get(cat).key, rows.get(sel).item.key);
     }
 
     private void selectItem(int index, boolean sound) {
@@ -956,6 +1082,14 @@ public class XmbActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Volume, mute, media, channel and number keys are not ours: the system (and HDMI-CEC to the TV) takes them,
+        // in every state, the faded menu included.
+        if (!isNavKey(keyCode)) return super.onKeyDown(keyCode, event);
+        // A key that just closed something (Back, Left, Menu) does nothing more until it is let go: held, its
+        // repeats would close the next level, then move the cross-bar.
+        if (keyCode == swallowUntilUp) return true;
+        if (launching) return true;   // the 200 ms between OK and the app opening
+        if (pendingAnim != null) settle();   // a key before the intro started: put everything where it belongs
         if (idle) {
             // The first key only brings the menu back, as on the PS3.
             if (event.getRepeatCount() == 0) wake(true);
@@ -971,7 +1105,7 @@ public class XmbActivity extends Activity {
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (cat > 0) {
-                    selectCategory(cat - 1, false);
+                    selectCategory(cat - 1, event.getRepeatCount() > 0 ? FADE_NONE : FADE_ON);
                     sounds.play(XmbSounds.CURSOR);
                 } else {
                     nudgeCategories(1, event);
@@ -979,7 +1113,7 @@ public class XmbActivity extends Activity {
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
                 if (cat < cats.size() - 1) {
-                    selectCategory(cat + 1, false);
+                    selectCategory(cat + 1, event.getRepeatCount() > 0 ? FADE_NONE : FADE_ON);
                     sounds.play(XmbSounds.CURSOR);
                 } else {
                     nudgeCategories(-1, event);
@@ -992,7 +1126,7 @@ public class XmbActivity extends Activity {
                 selectItem(selectedIndex() + 1, true);
                 return true;
             case KeyEvent.KEYCODE_MENU:
-                openOptions();
+                if (event.getRepeatCount() == 0) openOptions();
                 return true;
             default:
                 if (isOk(keyCode)) {
@@ -1016,8 +1150,32 @@ public class XmbActivity extends Activity {
         return super.onKeyLongPress(keyCode, event);
     }
 
+    /** The keys the cross-bar answers; everything else goes to the system. */
+    private static boolean isNavKey(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_MENU:
+            case KeyEvent.KEYCODE_BACK:
+                return true;
+            default:
+                return isOk(keyCode);
+        }
+    }
+
+    /** A key held after it closed a panel, ignored until released; 0 for none. */
+    private int swallowUntilUp;
+    /** OK was pressed on an app: the cross-bar is fading out and the app about to open. */
+    private boolean launching;
+
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == swallowUntilUp) {
+            swallowUntilUp = 0;
+            return true;
+        }
         if (isOk(keyCode)) {
             if (!okLongPressed && !event.isCanceled() && options.getVisibility() != View.VISIBLE && !idle
                     && !sideVisible() && (event.getFlags() & KeyEvent.FLAG_TRACKING) != 0) {
@@ -1055,6 +1213,14 @@ public class XmbActivity extends Activity {
             openMenus(null);
             return;
         }
+        if (XmbCatalog.ACTION_STATUS.equals(item.action)) {
+            openStatus(0);
+            return;
+        }
+        if (XmbCatalog.ACTION_DIAG.equals(item.action)) {
+            openDiagnostics(0);
+            return;
+        }
         open(item);
     }
 
@@ -1066,6 +1232,7 @@ public class XmbActivity extends Activity {
             return;
         }
         // As on the PS3: the chosen tile steps forward and brightens, the cross-bar fades, then the app opens.
+        launching = true;
         // (A view's animator keeps its start delay for the next animation, so every one here sets its own.)
         r.thumbBox.animate().scaleX(1.1f).scaleY(1.1f).setStartDelay(0).setDuration(180).setInterpolator(ease).start();
         r.glow.animate().alpha(1f).scaleX(1.15f).scaleY(1.15f).setStartDelay(0).setDuration(180).start();
@@ -1078,6 +1245,7 @@ public class XmbActivity extends Activity {
     // A plain start: an app opened with ActivityOptions.makeScaleUpAnimation left this Home marked translucent on
     // the Mi Box S (Android 11), so on the way back the app behind stayed visible through the wave's surface.
     private void start(XmbCatalog.Item item) {
+        launching = false;
         try {
             startActivity(item.intent);
             if (item.pkg != null) LastOpened.record(this, item.pkg);
@@ -1089,11 +1257,15 @@ public class XmbActivity extends Activity {
 
     /** Puts back what the launch animation moved, at once (returning plays its own animation over it). */
     private void restoreAfterLaunch() {
+        launching = false;
         catsRow.animate().cancel();
         catsRow.setAlpha(1f);
         catsRow.setTranslationY(px(CAT_TOP));   // its place: place() positions by translation
+        if (cat >= 0) catsRow.setTranslationX(catsHomeX());
         column.animate().cancel();
         column.setAlpha(1f);
+        column.setTranslationX(0f);
+        column.setTranslationY(0f);
         top.animate().cancel();
         top.setAlpha(1f);
         if (!rows.isEmpty()) {
@@ -1232,8 +1404,9 @@ public class XmbActivity extends Activity {
 
     private void nudgeColumn(int direction) {
         if (animMs == 0 || keyRepeat > 0) return;
-        column.animate().translationY(px(10 * direction)).setStartDelay(0).setDuration(80).setInterpolator(ease)
-                .withEndAction(() -> column.animate().translationY(0f).setStartDelay(0).setDuration(180)
+        View col = column;
+        col.animate().translationY(px(10 * direction)).setStartDelay(0).setDuration(80).setInterpolator(ease)
+                .withEndAction(() -> col.animate().translationY(0f).setStartDelay(0).setDuration(180)
                         .setInterpolator(ease).start()).start();
     }
 
@@ -1246,7 +1419,16 @@ public class XmbActivity extends Activity {
         if (!resumed || options.getVisibility() == View.VISIBLE || pickerOpen()) return;
         idle = true;
         status.setAnimating(false);
-        ui.animate().alpha(0f).setDuration(reducedMotion ? 0 : 1200).setInterpolator(ease).start();
+        XmbDebug.log("idle: menu fades");
+        long ms = reducedMotion ? 0 : 1200;
+        if (statusPrefs.keepOnIdle) {
+            // The clock and the status row stay, a little dimmer, over the wave; the cross-bar goes.
+            catsRow.animate().alpha(0f).setStartDelay(0).setDuration(ms).setInterpolator(ease).start();
+            column.animate().alpha(0f).setStartDelay(0).setDuration(ms).setInterpolator(ease).start();
+            top.animate().alpha(0.75f).setStartDelay(0).setDuration(ms).setInterpolator(ease).start();
+        } else {
+            ui.animate().alpha(0f).setDuration(ms).setInterpolator(ease).withLayer().start();
+        }
     };
 
     private void wake(boolean fromIdle) {
@@ -1254,7 +1436,15 @@ public class XmbActivity extends Activity {
         if (idle || fromIdle) {
             idle = false;
             status.setAnimating(true);
-            ui.animate().alpha(1f).setDuration(reducedMotion ? 0 : 2400).setInterpolator(ease).start();
+            if (!reducedMotion) {
+                handler.removeCallbacks(blink);
+                handler.post(blink);
+            }
+            long ms = reducedMotion ? 0 : 2400;
+            ui.animate().alpha(1f).setDuration(ms).setInterpolator(ease).withLayer().start();
+            catsRow.animate().alpha(1f).setStartDelay(0).setDuration(ms).setInterpolator(ease).start();
+            column.animate().alpha(1f).setStartDelay(0).setDuration(ms).setInterpolator(ease).start();
+            top.animate().alpha(1f).setStartDelay(0).setDuration(ms).setInterpolator(ease).start();
         }
         if (resumed) handler.postDelayed(goIdle, IDLE_MS);
     }
@@ -1376,8 +1566,10 @@ public class XmbActivity extends Activity {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
             case KeyEvent.KEYCODE_MENU:
+                if (event.getRepeatCount() > 0) return true;
                 closeOptions();
                 sounds.play(XmbSounds.CANCEL);
+                swallowUntilUp = keyCode;
                 return true;
             default:
                 if (isOk(keyCode)) {
@@ -1444,8 +1636,18 @@ public class XmbActivity extends Activity {
         default void moved(int index) {
         }
 
+        /** Up or Down while the list is open; true when the level used it (moving an item, say). */
+        default boolean upDown(int by) {
+            return false;
+        }
+
         void picked(int index);
     }
+
+    /** The next showSide replaces the list in place (a value changed), without the entrance animation. */
+    private boolean sideQuiet;
+    /** An entry shown in the accent colour (an item being carried in a reorder), or -1. */
+    private int sideMarked = -1;
 
     private FrameLayout side;
     private final List<String> sideTexts = new ArrayList<>();
@@ -1505,7 +1707,9 @@ public class XmbActivity extends Activity {
         side.setVisibility(View.VISIBLE);
         dimOtherCategories(true);
         layoutSide(true);
-        if (animMs > 0) {
+        boolean quiet = sideQuiet;
+        sideQuiet = false;
+        if (animMs > 0 && !quiet) {
             for (int i = 0; i < sideViews.size(); i++) {
                 View e = sideViews.get(i);
                 float to = e.getAlpha();
@@ -1543,12 +1747,13 @@ public class XmbActivity extends Activity {
     }
 
     private void paintSideEntry(ViewGroup e, boolean sel) {
+        boolean marked = sideViews.indexOf(e) == sideMarked;
         for (int k = 0; k < e.getChildCount(); k++) {
             View c = e.getChildAt(k);
             if (c instanceof TextView) {
                 TextView t = (TextView) c;
                 t.setTypeface(sel ? medium : regular);
-                t.setTextColor(sel ? Color.WHITE : INK_DIM);
+                t.setTextColor(marked ? (0xFF000000 | XmbAccent.floor(accentUi)) : sel ? Color.WHITE : INK_DIM);
                 t.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(sel ? 33 : 30));
                 t.setShadowLayer(sel ? px(10) : 0, 0, 0, sel ? 0x99FFFFFF : 0);
             } else if (c instanceof ImageView) {
@@ -1576,6 +1781,7 @@ public class XmbActivity extends Activity {
     private boolean sideKey(int keyCode, KeyEvent event) {
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_UP:
+                if (sideHandler != null && sideHandler.upDown(-1)) return true;
                 if (sideIdx > 0) {
                     sideIdx--;
                     layoutSide(false);
@@ -1584,6 +1790,7 @@ public class XmbActivity extends Activity {
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (sideHandler != null && sideHandler.upDown(1)) return true;
                 if (sideIdx < sideViews.size() - 1) {
                     sideIdx++;
                     layoutSide(false);
@@ -1593,8 +1800,10 @@ public class XmbActivity extends Activity {
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_MENU:
+                if (event.getRepeatCount() > 0) return true;
                 sounds.play(XmbSounds.CANCEL);
                 backSide();
+                swallowUntilUp = keyCode;
                 return true;
             default:
                 if (isOk(keyCode) && event.getRepeatCount() == 0) sideOkDown = true;
@@ -1618,19 +1827,28 @@ public class XmbActivity extends Activity {
         sideHandler = null;
         sideBackAction = null;
         sideOkDown = false;
+        sideMarked = -1;
         dimOtherCategories(false);
         if (previewColor != null) {
             previewColor = null;
             accent = -1;
             updateAccent();
+            if (!rows.isEmpty()) {
+                Row r = selectedRow();
+                r.detail.setText(r.item.detail);
+            }
             if (!quiet) reload();
         }
         if (resumed) wake(false);
     }
 
+    private Row selectedRow() {
+        return rows.get(Math.min(selectedIndex(), rows.size() - 1));
+    }
+
     private void setSelectedDetail(String text) {
         if (rows.isEmpty()) return;
-        Row r = rows.get(Math.min(selectedIndex(), rows.size() - 1));
+        Row r = selectedRow();
         r.detail.setText(text);
         r.detail.setVisibility(View.VISIBLE);
     }
@@ -1706,7 +1924,7 @@ public class XmbActivity extends Activity {
         adjBright = hb[1];
         // The list stays, faded, with the custom entry on top of the pickers.
         for (int i = 0; i < sideViews.size(); i++) {
-            if (i != sideIdx) sideViews.get(i).animate().alpha(i < sideIdx ? 0.2f : 0f).setDuration(120).start();
+            if (i != sideIdx) sideViews.get(i).animate().alpha(i < sideIdx ? 0.2f : 0f).setStartDelay(0).setDuration(120).start();
         }
         float y = sideCentre() + SIDE_STEP / 2 + 10;
         adjViews.clear();
@@ -1801,6 +2019,213 @@ public class XmbActivity extends Activity {
             closeSide(true);
             openColors();
         }
+    }
+
+    // ---- status bar settings -----------------------------------------------------------------------------------
+
+    private static final String STATUS_ORDER = "+order", STATUS_KEEP = "+keep";
+
+    private String presetName(String preset) {
+        switch (preset) {
+            case XmbStatusPrefs.SIMPLE: return getString(R.string.xmb_status_simple);
+            case XmbStatusPrefs.FULL: return getString(R.string.xmb_status_full);
+            case XmbStatusPrefs.CLOCK: return getString(R.string.xmb_status_clock);
+            case XmbStatusPrefs.CUSTOM: return getString(R.string.xmb_status_custom);
+            default: return getString(R.string.xmb_status_standard);
+        }
+    }
+
+    private String modeName(String mode) {
+        return getString(XmbStatusPrefs.ALWAYS.equals(mode) ? R.string.xmb_status_always
+                : XmbStatusPrefs.AUTO.equals(mode) ? R.string.xmb_status_auto : R.string.xmb_status_hidden);
+    }
+
+    private String itemName(String key) {
+        int id = getResources().getIdentifier("xmb_st_" + key, "string", getPackageName());
+        return id != 0 ? getString(id) : key;
+    }
+
+    private static int itemIcon(String key) {
+        switch (key) {
+            case "recording": return R.drawable.ic_xmb_videocam;
+            case "battery": return R.drawable.ic_xmb_battery_full;
+            case "storage": return R.drawable.ic_xmb_hard_drive;
+            case "adb": return R.drawable.ic_xmb_developer_mode_tv;
+            case "helper": return R.drawable.ic_xmb_settings_remote;
+            case "download": return R.drawable.ic_xmb_download;
+            case "usb": return R.drawable.ic_xmb_usb;
+            case "audio": return R.drawable.ic_xmb_headphones;
+            case "temperature": return R.drawable.ic_xmb_thermostat;
+            case "weather": return R.drawable.ic_xmb_partly_cloudy_day;
+            case "network": return R.drawable.ic_xmb_wifi;
+            default: return R.drawable.ic_xmb_palette;
+        }
+    }
+
+    private void setStatus(XmbStatusPrefs p) {
+        statusPrefs = p;
+        p.save(this);
+        status.setPrefs(p);
+    }
+
+    /**
+     * Settings > Status bar: the look (a preset), each item with its mode (OK goes round them; the row changes at
+     * once), Reorder, and whether the clock stays on the wave when the menu fades.
+     */
+    private void openStatus(int focus) {
+        List<String> texts = new ArrayList<>(), keys = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        texts.add(getString(R.string.xmb_status_preset, presetName(statusPrefs.preset)));
+        icons.add(R.drawable.ic_xmb_tune);
+        keys.add(null);
+        for (String key : statusPrefs.order) {
+            if (XmbStatusPrefs.item(key).modes.size() < 2) continue;   // nothing to choose (recording)
+            texts.add(getString(R.string.xmb_status_item, itemName(key), modeName(statusPrefs.mode(key))));
+            icons.add(itemIcon(key));
+            keys.add(key);
+        }
+        texts.add(getString(R.string.xmb_status_order));
+        icons.add(R.drawable.ic_xmb_swap_vert);
+        keys.add(STATUS_ORDER);
+        texts.add(getString(statusPrefs.keepOnIdle ? R.string.xmb_status_keep_on : R.string.xmb_status_keep_off));
+        icons.add(R.drawable.ic_xmb_clear_night);
+        keys.add(STATUS_KEEP);
+        showSide(texts, icons, focus, i -> {
+            String key = keys.get(i);
+            if (key == null) setStatus(statusPrefs.nextPreset());
+            else if (STATUS_ORDER.equals(key)) {
+                showToast(getString(R.string.xmb_status_order_hint));
+                openStatusOrder(0, null);
+                return;
+            } else if (STATUS_KEEP.equals(key)) setStatus(statusPrefs.withKeepOnIdle(!statusPrefs.keepOnIdle));
+            else setStatus(statusPrefs.nextMode(key));
+            sideQuiet = true;
+            openStatus(i);
+        }, null);
+    }
+
+    /** Reorder: OK picks an item up (it turns the accent colour), Up and Down carry it, OK puts it down. */
+    private void openStatusOrder(int focus, String carrying) {
+        List<String> order = statusPrefs.order, texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        for (String key : order) {
+            texts.add(itemName(key));
+            icons.add(itemIcon(key));
+        }
+        showSide(texts, icons, focus, new SideHandler() {
+            @Override
+            public boolean upDown(int by) {
+                if (carrying == null) return false;
+                int at = statusPrefs.order.indexOf(carrying), to = at + by;
+                if (to < 0 || to >= statusPrefs.order.size()) return true;
+                setStatus(statusPrefs.moved(carrying, by));
+                sounds.play(by < 0 ? XmbSounds.CURSOR : XmbSounds.CURSOR_DOWN);
+                sideQuiet = true;
+                openStatusOrder(to, carrying);
+                return true;
+            }
+
+            @Override
+            public void picked(int i) {
+                sideQuiet = true;
+                openStatusOrder(i, carrying == null ? statusPrefs.order.get(i) : null);
+            }
+        }, () -> openStatus(statusPrefs.order.size()));
+        sideMarked = carrying != null ? order.indexOf(carrying) : -1;
+        layoutSide(true);
+    }
+
+    // ---- diagnostics -------------------------------------------------------------------------------------------
+
+    private static final int REQ_RECORD = 41;
+    private static final String PREF_DEBUG_PANEL = "xmb_debug_panel";
+    private int recordSeconds = 30;
+    private TextView debugPanel;
+    private int lastWaveFrames;
+
+    /** Settings > Diagnostics: record the screen, stop a recording, the event panel on or off. */
+    private void openDiagnostics(int focus) {
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        if (XmbRecorder.recording) {
+            texts.add(getString(R.string.xmb_diag_stop));
+            icons.add(R.drawable.ic_xmb_videocam);
+            actions.add(() -> {
+                XmbRecorder.stop(this);
+                closeSide(true);
+            });
+        } else {
+            for (int seconds : new int[]{30, 120}) {
+                texts.add(getString(seconds == 30 ? R.string.xmb_diag_record30 : R.string.xmb_diag_record120));
+                icons.add(R.drawable.ic_xmb_videocam);
+                actions.add(() -> askToRecord(seconds));
+            }
+        }
+        boolean panel = debugPanel.getVisibility() == View.VISIBLE;
+        texts.add(getString(panel ? R.string.xmb_diag_panel_on : R.string.xmb_diag_panel_off));
+        icons.add(R.drawable.ic_xmb_bug_report);
+        int self = texts.size() - 1;
+        actions.add(() -> {
+            setDebugPanel(!panel);
+            prefs().edit().putBoolean(PREF_DEBUG_PANEL, !panel).apply();
+            sideQuiet = true;
+            openDiagnostics(self);
+        });
+        showSide(texts, icons, focus, i -> actions.get(i).run(), null);
+    }
+
+    private void askToRecord(int seconds) {
+        closeSide(true);
+        recordSeconds = seconds;
+        try {
+            startActivityForResult(XmbRecorder.permissionIntent(this), REQ_RECORD);
+        } catch (RuntimeException e) {
+            showToast(getString(R.string.xmb_diag_record_failed));
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_RECORD) return;
+        if (resultCode == RESULT_OK && data != null) XmbRecorder.start(this, resultCode, data, recordSeconds);
+        else XmbDebug.log("recording not allowed");
+    }
+
+    /** The event panel: the wave's frame rate and the newest lines of XmbDebug, bottom left over everything. */
+    private void setDebugPanel(boolean on) {
+        debugPanel.setVisibility(on ? View.VISIBLE : View.GONE);
+        XmbDebug.listener = on ? this::paintDebugPanel : null;
+        handler.removeCallbacks(debugTick);
+        if (on) {
+            lastWaveFrames = wave != null ? wave.framesDrawn : 0;
+            handler.postDelayed(debugTick, 1000);
+            paintDebugPanel();
+        }
+    }
+
+    private int waveFps;
+    private final Runnable debugTick = new Runnable() {
+        @Override
+        public void run() {
+            if (wave != null) {
+                waveFps = wave.framesDrawn - lastWaveFrames;
+                lastWaveFrames = wave.framesDrawn;
+            }
+            paintDebugPanel();
+            if (resumed && debugPanel.getVisibility() == View.VISIBLE) handler.postDelayed(this, 1000);
+        }
+    };
+
+    private void paintDebugPanel() {
+        if (debugPanel.getVisibility() != View.VISIBLE) return;
+        Runtime rt = Runtime.getRuntime();
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(Locale.ROOT, "wave %d fps   heap %d/%d MB   %s", waveFps,
+                (rt.totalMemory() - rt.freeMemory()) >> 20, rt.maxMemory() >> 20, idle ? "idle" : "awake"));
+        for (String line : XmbDebug.recent(8)) sb.append('\n').append(line);
+        debugPanel.setText(sb);
     }
 
     // ---- menus: add, rename, reorder, icons --------------------------------------------------------------------

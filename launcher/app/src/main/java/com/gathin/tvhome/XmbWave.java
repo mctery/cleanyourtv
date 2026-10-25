@@ -184,6 +184,10 @@ final class XmbWave implements GLSurfaceView.Renderer {
     /** The next frame continues from now: a pause (app in front, idle) must not jump the wave. */
     void resetClock() {
         lastNanos = 0;
+        // A float clock loses steps after days of drawing (the wave would stutter, then freeze). Wrapped here, where
+        // Home has just come back and a new shape is not noticed.
+        if (tSpline > 7200f) tSpline = 0f;
+        if (tPart > 7200f) tPart = 0f;
     }
 
     @Override
@@ -264,10 +268,16 @@ final class XmbWave implements GLSurfaceView.Renderer {
         GLES30.glUniform1i(GLES30.glGetUniformLocation(program, name), v);
     }
 
+    /** Frames drawn so far (the diagnostics panel shows the rate). */
+    volatile int framesDrawn;
+
     @Override
     public void onDrawFrame(GL10 unused) {
         long now = System.nanoTime();
         float dt = lastNanos == 0 ? 0.016f : (now - lastNanos) / 1e9f;
+        framesDrawn++;
+        // A frame far later than the next one should have been: what the eye sees as the wave jumping.
+        if (lastNanos != 0 && dt > 0.12f && dt < 5f) XmbDebug.log(String.format(java.util.Locale.ROOT, "wave: frame %d ms late", (int) (dt * 1000 - 33)));
         lastNanos = now;
         if (dt > 0.1f || dt < 0) dt = 0.016f;   // clamp across pauses
         tSpline += dt;

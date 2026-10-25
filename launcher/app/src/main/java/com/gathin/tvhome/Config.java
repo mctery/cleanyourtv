@@ -175,6 +175,8 @@ final class Config {
     final List<String> xmbMenus;
     /** XMB home: the wave colour, "month", "month1".."month12" or "#RRGGBB" (xmb_color). */
     final String xmbColor;
+    /** XMB home: the status row, "key=mode" in order (xmb_status). */
+    final List<String> xmbStatus;
 
     private Config(List<String> dockApps, boolean fillDock, List<String> hiddenApps, String liveTvPackage,
                    String liveTvAction, String liveTvInputId, Map<String, String> launchActions, Map<String, String> appLabels,
@@ -189,7 +191,7 @@ final class Config {
                    List<RaceWeekend.Race> raceCalendar, boolean cinematicHome, boolean ambientGlow, boolean appGlow, int homeIdleClockMinutes,
                    boolean keyFilter, boolean dockGlass, String glowStyle, boolean wallpaperCaptions,
                    boolean handleViewInputs, boolean tileMenu, List<String> xmbCategories, List<String> xmbMenus,
-                   String xmbColor) {
+                   String xmbColor, List<String> xmbStatus) {
         this.handleViewInputs = handleViewInputs;
         this.tileMenu = tileMenu;
         this.inputKeycodes = inputKeycodes;
@@ -259,6 +261,7 @@ final class Config {
         this.xmbCategories = Collections.unmodifiableList(xmbCategories);
         this.xmbMenus = Collections.unmodifiableList(xmbMenus);
         this.xmbColor = xmbColor;
+        this.xmbStatus = Collections.unmodifiableList(xmbStatus);
         this.dockGlass = dockGlass;
         this.glowStyle = glowStyle(glowStyle);
         this.wallpaperCaptions = wallpaperCaptions;
@@ -338,6 +341,7 @@ final class Config {
         List<String> xmbCategories = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_categories)));
         List<String> xmbMenus = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_menus)));
         String xmbColor = res.getString(R.string.xmb_color);
+        List<String> xmbStatus = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_status)));
         boolean applied = false;
 
         File dir = dir(ctx);
@@ -408,6 +412,7 @@ final class Config {
             xmbCategories = stringList(json, "xmb_categories", xmbCategories);
             xmbMenus = stringList(json, "xmb_menus", xmbMenus);
             xmbColor = string(json, "xmb_color", xmbColor);
+            xmbStatus = stringList(json, "xmb_status", xmbStatus);
         }
         // A theme push or reset invalidates choices made on the TV. On first use, remember the
         // current theme without clearing choices from an older launcher version.
@@ -470,7 +475,7 @@ final class Config {
                 wallpapers, rotationMinutes, wallpaperDim, dockOpacity, wallpaperOrder, applied,
                 festival, inputKeycodes, appKeys, stockHomeRedirect, json == null ? Collections.emptyList() : raceCalendar(json), cinematic, ambientGlow, appGlow,
                 Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu, xmbCategories,
-                xmbMenus, xmbColor);
+                xmbMenus, xmbColor, xmbStatus);
     }
 
     /**

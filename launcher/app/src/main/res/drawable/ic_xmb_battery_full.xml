@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols "battery_full" (outlined, weight 300) by Google, Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="960" android:viewportHeight="960">
+    <group android:translateY="960">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M333.91-100q-15.52 0-25.87-10.4-10.35-10.39-10.35-25.76v-618.07q0-15.37 10.4-25.76 10.39-10.39 25.76-10.39h72.3V-860h147.7v69.62h72.38q15.38 0 25.73 10.39t10.35 25.76v618.07q0 15.37-10.4 25.76-10.39 10.4-25.76 10.4H333.91Z" />
+    </group>
+</vector>

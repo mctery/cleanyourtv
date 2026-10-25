@@ -33,9 +33,29 @@ final class ServiceRepair {
         prefs(context).edit().remove(service.getName()).apply();
     }
 
+    private static final String BACKUP = "accessibility_rebind_backup";
+
+    /** Puts back a list rebind() took off, if it is still off (rebind's own delayed step, or restore after a crash). */
+    private static void putBack(Context context) {
+        SharedPreferences backup = context.getSharedPreferences(BACKUP, Context.MODE_PRIVATE);
+        String list = backup.getString(BACKUP, null);
+        if (list == null) return;
+        try {
+            ContentResolver cr = context.getContentResolver();
+            String now = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (now == null || now.isEmpty() || now.equals("null")) {
+                Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, list);
+                Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+            }
+            backup.edit().remove(BACKUP).apply();
+        } catch (RuntimeException ignored) {
+        }
+    }
+
     static void restore(Context context) {
         if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
                 != PackageManager.PERMISSION_GRANTED) return;
+        putBack(context);
         try {
             ContentResolver cr = context.getContentResolver();
             String list = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
@@ -88,15 +108,12 @@ final class ServiceRepair {
         try {
             String list = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
             if (list == null || list.isEmpty() || list.equals("null")) return false;
+            // Written down first: if this process dies in the two seconds the list is empty, the next restore()
+            // puts every app's helpers back, not just ours.
+            context.getSharedPreferences(BACKUP, Context.MODE_PRIVATE).edit().putString(BACKUP, list).commit();
             Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
             Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 0);
-            handler.postDelayed(() -> {
-                try {
-                    Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, list);
-                    Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
-                } catch (RuntimeException ignored) {
-                }
-            }, 2000);
+            handler.postDelayed(() -> putBack(context), 2000);
             return true;
         } catch (RuntimeException e) {
             return false;

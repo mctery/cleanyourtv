@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols "reorder" (outlined, weight 300) by Google, Apache License 2.0. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="960" android:viewportHeight="960">
+    <group android:translateY="960">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M140-220v-60h680v60H140Zm0-153.46v-60h680v60H140Zm0-153.08v-60h680v60H140ZM140-680v-60h680v60H140Z" />
+    </group>
+</vector>

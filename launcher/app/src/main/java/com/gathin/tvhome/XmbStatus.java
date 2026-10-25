@@ -82,6 +82,8 @@ final class XmbStatus {
     private int accent = 0xD6517A;
     private boolean started, rebindTried, batteryLogged;
     private BluetoothProfile a2dp;
+    /** Counts start() calls: a Bluetooth proxy that arrives for an older one is closed, not kept. */
+    private int proxyGen;
     /** The download item, kept between refreshes so its animation runs on (refreshes come with every bit of progress). */
     private View download;
     private TextView downloadText;
@@ -99,6 +101,11 @@ final class XmbStatus {
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setClipChildren(false);
         row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+    }
+
+    /** Memory is wanted and Home is hidden: the glow bitmaps are drawn again when next needed. */
+    void trim() {
+        bitmaps.clear();
     }
 
     void setAccent(int rgb) {
@@ -156,12 +163,13 @@ final class XmbStatus {
         }
         watchInstalls();
         try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            BluetoothAdapter adapter = bluetoothAllowed() ? BluetoothAdapter.getDefaultAdapter() : null;
+            int gen = ++proxyGen;
             if (adapter != null) {
-                adapter.getProfileProxy(act, new BluetoothProfile.ServiceListener() {
+                adapter.getProfileProxy(act.getApplicationContext(), new BluetoothProfile.ServiceListener() {
                     @Override
                     public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                        if (started) {
+                        if (started && gen == proxyGen && a2dp == null) {
                             a2dp = proxy;
                             refreshSoon();
                         } else {
@@ -186,7 +194,9 @@ final class XmbStatus {
     void stop() {
         if (!started) return;
         started = false;
+        proxyGen++;
         handler.removeCallbacks(refreshRunnable);
+        handler.removeCallbacks(rebindRunnable);
         if (downloadAnim != null) downloadAnim.cancel();
         try {
             act.unregisterReceiver(receiver);
@@ -216,6 +226,7 @@ final class XmbStatus {
     void tick() {
         if (!started) return;
         XmbWeather.refresh(act, this::refresh);
+        if (bluetoothAllowed()) XmbRemoteBattery.refresh(act, this::refreshSoon);
         refresh();
     }
 
@@ -223,62 +234,180 @@ final class XmbStatus {
 
     /** Coalesces bursts (download progress, signal changes) into one redraw. */
     private void refreshSoon() {
+        if (!started) return;
         handler.removeCallbacks(refreshRunnable);
         handler.postDelayed(refreshRunnable, 250);
     }
 
     // ---- the row ---------------------------------------------------------------------------------------------------
 
+    private XmbStatusPrefs setup = XmbStatusPrefs.preset(XmbStatusPrefs.STANDARD, XmbStatusPrefs.defaultOrder(), false);
+
+    /** What the row shows and in which order (Settings > Status bar); takes effect at once. */
+    void setPrefs(XmbStatusPrefs p) {
+        setup = p;
+        refresh();
+    }
+
     void refresh() {
-        row.removeAllViews();
-        List<View> warn = new ArrayList<>(), busy = new ArrayList<>(), always = new ArrayList<>();
-        int battery = remoteBattery();
-        if (battery >= 0 && battery < LOW_BATTERY) warn.add(tag(warnIcon(R.drawable.ic_xmb_battery_1_bar), "battery"));
-        if (lowStorage()) warn.add(tag(warnIcon(R.drawable.ic_xmb_hard_drive), "storage"));
-        if (adbOn()) warn.add(tag(warnIcon(R.drawable.ic_xmb_developer_mode_tv), "adb"));
-        if (helperDown()) warn.add(tag(warnIcon(R.drawable.ic_xmb_settings_remote), "helper"));
-
-        int progress = installProgress();
-        if (progress >= 0) {
-            busy.add(tag(downloading(progress), "download"));
-        } else if (downloadAnim != null) {
-            downloadAnim.cancel();
+        // Callbacks (weather, battery, the accent) can arrive after Home went behind an app: nothing to draw then,
+        // and above all no accessibility repair while someone else's app is in front.
+        if (!started) return;
+        // Built aside first: when every item would look as it does now (a Wi-Fi signal event that changed nothing,
+        // say), the row is left alone, so nothing on screen is laid out again.
+        List<View> views = new ArrayList<>();
+        StringBuilder sig = new StringBuilder();
+        for (String key : setup.order) {
+            String mode = setup.mode(key);
+            if (XmbStatusPrefs.HIDDEN.equals(mode)) continue;
+            part = null;
+            View v = build(key, XmbStatusPrefs.ALWAYS.equals(mode));
+            if (v == null) continue;
+            v.setTag(key);
+            views.add(v);
+            sig.append(key).append('=').append(part).append(';');
         }
-        if (usbDrive()) busy.add(tag(icon(R.drawable.ic_xmb_usb), "usb"));
-        int audio = bluetoothAudio();
-        if (audio != 0) busy.add(tag(icon(audio), "audio"));
-
-        XmbWeather w = XmbWeather.current(act);
-        if (w != null) always.add(tag(pair(icon(XmbWeather.icon(w.code, w.day)), w.temperature + "°"), "weather"));
-        int net = network();
-        always.add(tag(net == R.drawable.ic_xmb_wifi_off
-                ? image(bitmap(net, 0x73FFFFFF, 0x26FFFFFF, 0x14FFFFFF)) : icon(net), "network"));
-        always.add(tag(image(bitmap(R.drawable.ic_xmb_palette, Color.WHITE, 0x73FFFFFF, (0xF2 << 24) | (accent & 0xFFFFFF))),
-                "palette"));
-
-        boolean first = true;
+        String now0 = sig.toString();
+        if (now0.equals(shownState) && row.getChildCount() == views.size()) return;
+        shownState = now0;
+        row.removeAllViews();
         java.util.Set<String> now = new java.util.HashSet<>();
-        for (List<View> group : java.util.Arrays.asList(warn, busy, always)) {
-            if (group.isEmpty()) continue;
-            for (int i = 0; i < group.size(); i++) {
-                View v = group.get(i);
-                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
-                if (!first) lp.leftMargin += u.px(i == 0 ? GROUP_GAP : GAP);
-                row.addView(v, lp);
-                first = false;
-                String key = (String) v.getTag();
-                now.add(key);
-                // Something new to say glows up instead of popping in.
-                if (!shown.isEmpty() && !shown.contains(key) && animate) {
-                    v.setAlpha(0f);
-                    v.setScaleX(0.7f);
-                    v.setScaleY(0.7f);
-                    v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(420).start();
-                }
+        int lastKind = -1;
+        for (View v : views) {
+            String key = (String) v.getTag();
+            if (v.getParent() != null) ((ViewGroup) v.getParent()).removeView(v);
+            int kind = XmbStatusPrefs.item(key).kind;
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
+            // From the item's own base (an icon is pulled in by its glow's padding, a pair is not), never added on top
+            // of an earlier refresh's gap: the download item is reused.
+            lp.leftMargin = (v instanceof ImageView ? -u.px(PAD) : 0) + (lastKind >= 0 ? u.px(kind == lastKind ? GAP : GROUP_GAP) : 0);
+            row.addView(v, lp);
+            lastKind = kind;
+            now.add(key);
+            // Something new to say glows up instead of popping in.
+            if (!shown.isEmpty() && !shown.contains(key) && animate) {
+                v.setAlpha(0f);
+                v.setScaleX(0.7f);
+                v.setScaleY(0.7f);
+                v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(420).start();
             }
+        }
+        if (!now.contains("download") && downloadAnim != null) downloadAnim.cancel();
+        if (!now.equals(shown)) {
+            java.util.Set<String> gone = new java.util.HashSet<>(shown), added = new java.util.HashSet<>(now);
+            gone.removeAll(now);
+            added.removeAll(shown);
+            if (!shown.isEmpty()) XmbDebug.log("status row: +" + added + " -" + gone);
         }
         shown.clear();
         shown.addAll(now);
+    }
+
+    /** What the item being built shows, for the row's signature (set by build). */
+    private String part;
+    private String shownState;
+
+    /** One item, or null when it has nothing to show; always: show it (with its value) even when all is well. */
+    private View build(String key, boolean always) {
+        View v = build0(key, always);
+        if (part == null) part = v != null ? "1" : "-";
+        return v;
+    }
+
+    private View build0(String key, boolean always) {
+        switch (key) {
+            case "recording":
+                return XmbRecorder.recording ? image(bitmap(R.drawable.ic_xmb_videocam, 0xFFFFB4B4, 0xA6FF8080, 0xD9E0302A)) : null;
+            case "battery": {
+                int level = remoteBattery();
+                if (level < 0) return null;
+                boolean low = level < LOW_BATTERY;
+                if (!low && !always) return null;
+                part = low + "/" + level;
+                View icon = low ? warnIcon(R.drawable.ic_xmb_battery_1_bar) : icon(R.drawable.ic_xmb_battery_full);
+                return always ? pair(icon, level + "%") : icon;
+            }
+            case "storage": {
+                long free = freeBytes();
+                if (free < 0) return null;
+                // Low below 450 MB, fine again above 550 MB: no blinking around one value.
+                boolean low = storageLow = storageLow ? free < LOW_STORAGE_BYTES + 50_000_000L
+                        : free < LOW_STORAGE_BYTES - 50_000_000L;
+                if (!low && !always) return null;
+                part = low + "/" + free / 100_000_000L;
+                View icon = low ? warnIcon(R.drawable.ic_xmb_hard_drive) : icon(R.drawable.ic_xmb_hard_drive);
+                return always ? pair(icon, String.format(java.util.Locale.ROOT, "%.1f GB", free / 1e9)) : icon;
+            }
+            case "adb":
+                return adbOn() ? warnIcon(R.drawable.ic_xmb_developer_mode_tv) : null;
+            case "helper":
+                return helperDown() ? warnIcon(R.drawable.ic_xmb_settings_remote) : null;
+            case "download": {
+                int progress = installProgress();
+                part = "on";   // the percentage changes inside the item, not the row
+                return progress >= 0 ? downloading(progress) : null;
+            }
+            case "usb":
+                return usbDrive() ? icon(R.drawable.ic_xmb_usb) : null;
+            case "audio": {
+                int audio = bluetoothAudio();
+                part = String.valueOf(audio);
+                return audio != 0 ? icon(audio) : null;
+            }
+            case "temperature": {
+                int t = socTemperature();
+                if (t < 0) return null;
+                boolean hot = t >= HOT_CELSIUS;
+                if (!hot && !always) return null;
+                part = hot + "/" + t;
+                return pair(hot ? warnIcon(R.drawable.ic_xmb_thermostat) : icon(R.drawable.ic_xmb_thermostat), t + "°");
+            }
+            case "weather": {
+                XmbWeather w = XmbWeather.current(act);
+                if (w != null) part = XmbWeather.icon(w.code, w.day) + "/" + w.temperature;
+                return w != null ? pair(icon(XmbWeather.icon(w.code, w.day)), w.temperature + "°") : null;
+            }
+            case "network": {
+                int net = network();
+                part = String.valueOf(net);
+                return net == R.drawable.ic_xmb_wifi_off
+                        ? image(bitmap(net, 0x73FFFFFF, 0x26FFFFFF, 0x14FFFFFF)) : icon(net);
+            }
+            case "palette":
+                part = Integer.toHexString(accent);
+                return image(bitmap(R.drawable.ic_xmb_palette, Color.WHITE, 0x73FFFFFF, (0xF2 << 24) | (accent & 0xFFFFFF)));
+            default:
+                return null;
+        }
+    }
+
+    private static final int HOT_CELSIUS = 75;
+    private boolean storageLow;
+    private boolean tempLogged;
+
+    /** The chip's temperature in degrees Celsius from the kernel's thermal zones, or -1 where apps may not read it. */
+    private int socTemperature() {
+        java.io.File dir = new java.io.File("/sys/class/thermal");
+        java.io.File[] zones = dir.listFiles((d, n) -> n.startsWith("thermal_zone"));
+        int best = -1;
+        if (zones != null) {
+            for (java.io.File z : zones) {
+                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(new java.io.File(z, "temp")))) {
+                    String line = r.readLine();
+                    if (line == null) continue;
+                    long v = Long.parseLong(line.trim());
+                    int c = (int) (v > 1000 ? v / 1000 : v);   // most kernels report millidegrees
+                    if (c > 0 && c < 150) best = Math.max(best, c);
+                } catch (Exception ignored) {
+                    // not readable for apps on this firmware
+                }
+            }
+        }
+        if (!tempLogged) {
+            tempLogged = true;
+            Log.i(TAG, "chip temperature: " + best);
+        }
+        return best;
     }
 
     private final java.util.Set<String> shown = new java.util.HashSet<>();
@@ -342,18 +471,25 @@ final class XmbStatus {
             });
         }
         downloadText.setText(progress + "%");
-        if (download.getParent() != null) ((ViewGroup) download.getParent()).removeView(download);
-        download.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
-        if (!downloadAnim.isStarted()) downloadAnim.start();
+        if (download.getParent() == null) download.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        if (!downloadAnim.isStarted() && animating) downloadAnim.start();
         return download;
     }
 
     /** The menu faded out to the wave: nothing in the row needs to move meanwhile. */
     void setAnimating(boolean on) {
-        if (downloadAnim == null || !downloadAnim.isStarted()) return;
-        if (on) downloadAnim.resume();
-        else downloadAnim.pause();
+        animating = on;
+        if (downloadAnim == null) return;
+        if (!on) {
+            if (downloadAnim.isStarted()) downloadAnim.pause();
+        } else if (downloadAnim.isPaused()) {
+            downloadAnim.resume();
+        } else if (!downloadAnim.isStarted() && download != null && download.getParent() != null) {
+            downloadAnim.start();
+        }
     }
+
+    private boolean animating = true;
 
     private View icon(int res) {
         return image(bitmap(res, Color.WHITE, 0x8CFFFFFF, 0x47FFFFFF));
@@ -387,6 +523,7 @@ final class XmbStatus {
         t.setTextColor(0xE6FFFFFF);
         t.setIncludeFontPadding(false);
         t.setShadowLayer(u.px(9), 0, 0, 0x66FFFFFF);
+        t.setFontFeatureSettings("tnum");   // equal-width digits: a changing number does not nudge the row
         t.setText(number);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-2, -2);
         tlp.leftMargin = u.px(8);
@@ -438,7 +575,7 @@ final class XmbStatus {
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                 WifiManager wm = (WifiManager) act.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
                 WifiInfo info = wm != null ? wm.getConnectionInfo() : null;
-                int level = info != null ? WifiManager.calculateSignalLevel(info.getRssi(), 4) : 3;
+                int level = info != null ? wifiBars(info.getRssi()) : 3;
                 return level >= 3 ? R.drawable.ic_xmb_wifi_3 : level == 2 ? R.drawable.ic_xmb_wifi_2 : R.drawable.ic_xmb_wifi_1;
             }
             return R.drawable.ic_xmb_lan;
@@ -447,17 +584,34 @@ final class XmbStatus {
         }
     }
 
-    private boolean lowStorage() {
+    private int bars = 3;
+
+    /**
+     * One, two or three lit arcs from the signal (dBm), changing only when the signal is 3 dB past the step, so a
+     * signal sitting on a step does not make the icon flicker.
+     */
+    private int wifiBars(int rssi) {
+        int up = bars < 3 ? (bars == 2 ? -57 : -67) : Integer.MAX_VALUE;     // into the next step
+        int down = bars > 1 ? (bars == 3 ? -63 : -73) : Integer.MIN_VALUE;   // out of this one
+        if (rssi >= up) bars++;
+        else if (rssi <= down) bars--;
+        return bars = Math.max(1, Math.min(3, bars));
+    }
+
+    /** Free space for apps, or -1 when it cannot be read. */
+    private long freeBytes() {
         try {
-            return new StatFs(Environment.getDataDirectory().getPath()).getAvailableBytes() < LOW_STORAGE_BYTES;
+            return new StatFs(Environment.getDataDirectory().getPath()).getAvailableBytes();
         } catch (RuntimeException e) {
-            return false;
+            return -1;
         }
     }
 
     /** USB debugging, which on many boxes (the Mi Box S among them) also opens ADB on the network, port 5555. */
     private boolean adbOn() {
-        return Settings.Global.getInt(act.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1;
+        // USB debugging, or wireless debugging (Android 11 and later), either one leaves a door open.
+        return Settings.Global.getInt(act.getContentResolver(), Settings.Global.ADB_ENABLED, 0) == 1
+                || Settings.Global.getInt(act.getContentResolver(), "adb_wifi_enabled", 0) == 1;
     }
 
     /**
@@ -473,14 +627,22 @@ final class XmbStatus {
             return false;
         }
         if (!rebindTried) {
+            // Not from here (a refresh must not switch accessibility off): a one-shot that stop() cancels.
             rebindTried = true;
-            Log.i(TAG, "remote-button helper not running; turning accessibility off and on");
-            if (ServiceRepair.rebind(act, handler)) {
-                handler.postDelayed(refreshRunnable, 6000);
-                return false;
-            }
+            handler.post(rebindRunnable);
+            return false;
         }
         return true;
+    }
+
+    private final Runnable rebindRunnable = this::rebind;
+
+    private void rebind() {
+        if (!started || InputKeyService.running) return;
+        Log.i(TAG, "remote-button helper not running; turning accessibility off and on");
+        XmbDebug.log("helper: rebinding accessibility");
+        if (ServiceRepair.rebind(act, handler)) handler.postDelayed(refreshRunnable, 6000);
+        else refreshSoon();
     }
 
     private void watchInstalls() {
@@ -609,7 +771,7 @@ final class XmbStatus {
                 batteryLogged = true;
                 Log.i(TAG, "battery level not readable: " + e);
             }
-            return -1;
+            return XmbRemoteBattery.cached(act);
         }
     }
 }

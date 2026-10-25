@@ -57,17 +57,19 @@ final class XmbSounds {
     }
 
     /**
-     * A full-level copy of a quiet WAV in the cache, made fresh each time the XMB starts (a few milliseconds for
-     * these sizes), or the file itself when it is not a 16-bit WAV, is already loud, or the copy cannot be written.
+     * A full-level copy of a quiet WAV in the cache, made when the file is new or changed, or the file itself when it
+     * is not a 16-bit WAV, is already loud, or the copy cannot be written.
      */
     private static File loud(Context ctx, File f) {
         if (f == null || !f.getName().endsWith(".wav")) return f;
         try {
+            File dir = new File(ctx.getCacheDir(), DIR);
+            File out = new File(dir, f.getName());
+            // Made once per file: the copy is kept while it is newer than the file the owner put on the TV.
+            if (out.isFile() && out.length() > 0 && out.lastModified() >= f.lastModified()) return out;
             byte[] louder = XmbWav.normalize(java.nio.file.Files.readAllBytes(f.toPath()));
             if (louder == null) return f;
-            File dir = new File(ctx.getCacheDir(), DIR);
             if (!dir.isDirectory() && !dir.mkdirs()) return f;
-            File out = new File(dir, f.getName());
             java.nio.file.Files.write(out.toPath(), louder);
             return out;
         } catch (java.io.IOException | RuntimeException e) {
