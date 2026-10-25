@@ -17,6 +17,7 @@ import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.opengl.GLSurfaceView;
@@ -308,16 +309,24 @@ public class XmbActivity extends Activity {
         if (stopped && !introDue) returnDue = true;
         stopped = false;
         dirty = true;   // last-opened times and the network line change while an app is in front
+        runningReadAt = 0;   // and which apps are left open
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         resumed = true;
+        // Only handed an intent (Home pressed on Home): the music, the wave and the status row never stopped.
+        boolean brief = pausePending;
+        pausePending = false;
+        later.removeCallbacks(pauseFully);
+        // A boot animation the short pause left without its timeout: the menu comes now, as for a key.
+        if (booting) skipBoot();
         updateAccent();
         if (dirty) reload();
+        if (!rows.isEmpty() && XmbCatalog.RUNNING.equals(selectedRow().item.key)) readRunning(false, null);
         tick();
-        if (!reducedMotion) handler.post(blink);
+        startBlink();
         // Standby long enough with Home in front: waking up is turning the TV on (xmb_boot_animation "power").
         if (screenOffAt > 0) {
             if (SystemClock.elapsedRealtime() - screenOffAt >= WAKE_BOOT_AFTER_MS
@@ -329,8 +338,10 @@ public class XmbActivity extends Activity {
         // Before the wave's first frame, so that frame is already the animation's black.
         if (boot) startBootAnimation();
         if (waveView != null) {
-            waveView.onResume();
-            wave.resetClock();
+            if (!brief) {
+                waveView.onResume();
+                wave.resetClock();
+            }
             startWave();
         }
         wake(false);
@@ -340,7 +351,7 @@ public class XmbActivity extends Activity {
         openingPlayed = true;
         status.start();
         if (debugPanel.getVisibility() == View.VISIBLE) setDebugPanel(true);
-        if (!dreaming) music.resume(boot ? 7500 : jingle ? 7000 : 1200);
+        if (!dreaming && !brief) music.resume(boot ? 7500 : jingle ? 7000 : 1200);
         if (boot) {
             // the menu comes in at the animation's mark
         } else if (introDue) {
@@ -351,27 +362,46 @@ public class XmbActivity extends Activity {
             settle();
         }
         introDue = returnDue = false;
+        if (closed != null) afterClosing();   // back from closing apps in Settings
     }
 
     @Override
     protected void onPause() {
         resumed = false;
+        preloading = 0;
+        closeSide(true);
+        closePrompt();
+        toast.animate().cancel();
+        toast.setAlpha(0f);
+        handler.removeCallbacksAndMessages(null);
+        // Home pressed on Home: Android pauses the activity, hands it the intent and resumes it, all in one message.
+        // Stopping the music, the wave's surface and the status row for that made the music stop and start again,
+        // the wave stall and the clock's colon flicker, so they stop at the next message, unless onResume came first.
+        pausePending = true;
+        later.post(pauseFully);
+        super.onPause();
+    }
+
+    /** Its own handler: onPause clears this activity's. */
+    private final Handler later = new Handler(Looper.getMainLooper());
+    /** Paused, and what pausing stops (pauseFully) has not stopped yet. */
+    private boolean pausePending;
+    private final Runnable pauseFully = this::pauseFully;
+
+    /** What a pause stops, once it is more than Home being handed an intent: at the next message, or at onStop. */
+    private void pauseFully() {
+        later.removeCallbacks(pauseFully);
+        if (!pausePending) return;
+        pausePending = false;
         if (booting) {
             // Something came up mid-animation: the wave as it always is; the return puts the menu back.
             booting = false;
             wave.endBoot();
         }
-        preloading = 0;
         XmbSpeedTest.cancel();
-        closeSide(true);
-        closePrompt();
         status.stop();
         music.pause();
-        toast.animate().cancel();
-        toast.setAlpha(0f);
-        handler.removeCallbacksAndMessages(null);
         if (waveView != null) waveView.onPause();
-        super.onPause();
     }
 
     @Override
@@ -429,6 +459,7 @@ public class XmbActivity extends Activity {
 
     @Override
     protected void onStop() {
+        pauseFully();
         stopped = true;
         // Stopped because the TV went to standby with Home in front, not because an app came up: noted, so that
         // waking up after a while plays the boot animation.
@@ -451,16 +482,24 @@ public class XmbActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Home pressed while Home is already in front: back to Video, first item. From an app, keep the place.
-        if (!stopped && intent != null && intent.hasCategory(Intent.CATEGORY_HOME)) {
-            closePrompt();
-            closeSide(false);
-            selectedKey.remove(XmbCatalog.VIDEO);
-            int video = indexOfCat(XmbCatalog.VIDEO);
-            if (video >= 0 && video != cat) selectCategory(video, false);
-            else if (cat >= 0) layoutColumn(false);
-            wake(true);
+        // Home pressed while Home is already in front: back to Video, first item. From an app, keep the place: coming
+        // back from one, Android starts Home before it hands over the intent, so stopped is already false here and
+        // returnDue (set by onStart) tells the two apart.
+        if (stopped || returnDue || introDue || intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
+        XmbDebug.log("Home pressed on Home");
+        if (booting) {
+            skipBoot();   // as any key does
+            return;
         }
+        closePrompt();
+        closeSide(false);
+        selectedKey.remove(XmbCatalog.VIDEO);
+        int video = indexOfCat(XmbCatalog.VIDEO);
+        if (video >= 0 && video != cat) selectCategory(video, false);
+        else if (cat >= 0) layoutColumn(false);
+        // Fades in only when the menu had faded to the wave: on screen already, fading it in again (2.4 s of the
+        // whole menu drawn into a layer) left the wave short of the GPU.
+        wake(false);
     }
 
     @Override
@@ -727,6 +766,14 @@ public class XmbActivity extends Activity {
             if (resumed && !(idle && !statusPrefs.keepOnIdle)) handler.postDelayed(this, BLINK_MS);
         }
     };
+
+    /** The colon blinks from bright, in one chain of steps: a second chain, a moment behind, made it flicker. */
+    private void startBlink() {
+        handler.removeCallbacks(blink);
+        if (reducedMotion) return;
+        colonDim = true;   // the first step brings it up
+        handler.post(blink);
+    }
 
     private final Runnable tickRunnable = this::tick;
 
@@ -1226,6 +1273,8 @@ public class XmbActivity extends Activity {
         // putIfAbsent: an item missing for one load (an app mid-update) must not lose the owner's place for good.
         selectedKey.putIfAbsent(cats.get(cat).key, rows.get(sel).item.key);
         if (sideVisible()) fitSelectedRow();
+        // Open apps under the bar: its line (how many apps run, the memory free) is read now.
+        if (resumed && XmbCatalog.RUNNING.equals(rows.get(sel).item.key)) readRunning(false, null);
     }
 
     /** The title stays where it is drawn while the row is laid out anew, then glides to its new place. */
@@ -1417,6 +1466,10 @@ public class XmbActivity extends Activity {
         }
         if (XmbCatalog.ACTION_SPEEDTEST.equals(item.action)) {
             runSpeedTest();
+            return;
+        }
+        if (XmbCatalog.ACTION_RUNNING.equals(item.action)) {
+            readRunning(false, () -> showRunning(1));
             return;
         }
         open(item);
@@ -1771,10 +1824,7 @@ public class XmbActivity extends Activity {
         if (idle || fromIdle) {
             idle = false;
             status.setAnimating(true);
-            if (!reducedMotion) {
-                handler.removeCallbacks(blink);
-                handler.post(blink);
-            }
+            startBlink();
             long ms = reducedMotion ? 0 : WAKE_FADE_MS;
             ui.animate().alpha(1f).setDuration(ms).setInterpolator(ease).withLayer().start();
             fade(catsRow, 1f, ms);
@@ -1816,6 +1866,26 @@ public class XmbActivity extends Activity {
                     startActivity(XmbCatalog.appInfoIntent(this, item.pkg));
                 } catch (RuntimeException e) {
                     showToast(getString(R.string.not_available));
+                }
+            });
+            // Left open behind Home (Settings > Open apps knows): Close, last, so the others keep their places.
+            XmbRunning.Snapshot s = XmbRunning.last();
+            XmbRunning.App open = s != null ? s.find(item.pkg) : null;
+            if (open != null) {
+                texts.add(getString(R.string.xmb_close_app));
+                icons.add(R.drawable.ic_xmb_close);
+                actions.add(() -> {
+                    closeSide(true);
+                    closeApps(Collections.singletonList(open), 0);
+                });
+            }
+            // What is open may have changed since the last reading: read again, and offer Close or not.
+            readRunning(false, () -> {
+                XmbRunning.Snapshot now = XmbRunning.last();
+                boolean isOpen = now != null && now.find(item.pkg) != null;
+                if (item.key.equals(optionsFor) && sideVisible() && isOpen != (open != null)) {
+                    sideQuiet = true;
+                    openOptions(Math.min(sideIdx, texts.size() - 1));
                 }
             });
         }
@@ -1879,6 +1949,8 @@ public class XmbActivity extends Activity {
 
     /** Settings' lists stand at SIDE_X; an item's options closer, at MENU_X, beside its title (the PSP's). */
     private static final float SIDE_X = 1400, MENU_X = 1180, SIDE_STEP = 64, SIDE_ICON = 44;
+    /** Marks an entry's icon that is an app's own, not tinted. */
+    private static final Object SIDE_ART = new Object();
 
     private interface SideHandler {
         default void moved(int index) {
@@ -1935,6 +2007,12 @@ public class XmbActivity extends Activity {
     /** A level standing at x; dim: the other categories fade out, so the list stands clear of the cross-bar. */
     private void showSide(List<String> texts, List<Integer> icons, int start, SideHandler h, Runnable back, float x,
                           boolean dim) {
+        showSide(texts, icons, null, start, h, back, x, dim);
+    }
+
+    /** Art: an app's own icon for an entry, drawn in its colours rather than tinted (null, or null entries: glyphs). */
+    private void showSide(List<String> texts, List<Integer> icons, List<Drawable> art, int start, SideHandler h,
+                          Runnable back, float x, boolean dim) {
         optionsFor = null;
         boolean quiet = sideQuiet;
         sideQuiet = false;
@@ -1964,7 +2042,14 @@ public class XmbActivity extends Activity {
             e.setClipChildren(false);
             String t = texts.get(i);
             int icon = icons.get(i);
-            if (icon != 0) {
+            Drawable picture = art != null ? art.get(i) : null;
+            if (picture != null) {
+                ImageView iv = new ImageView(this);
+                iv.setImageDrawable(picture);
+                iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                iv.setTag(SIDE_ART);
+                e.addView(iv, new LinearLayout.LayoutParams(px(SIDE_ICON), px(SIDE_ICON)));
+            } else if (icon != 0) {
                 ImageView iv = new ImageView(this);
                 iv.setImageDrawable(getDrawable(icon).mutate());
                 float size = t == null ? 56 : SIDE_ICON;
@@ -1974,7 +2059,7 @@ public class XmbActivity extends Activity {
                 TextView tv = text(regular, 30, INK_DIM);
                 tv.setText(t);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-                if (icon != 0) lp.leftMargin = px(18);
+                if (icon != 0 || picture != null) lp.leftMargin = px(18);
                 e.addView(tv, lp);
             }
             side.addView(e, new FrameLayout.LayoutParams(px(1920 - sideX - 40), px(SIDE_STEP)));
@@ -2074,7 +2159,9 @@ public class XmbActivity extends Activity {
                 t.setPivotY(t.getPaint().getFontMetricsInt(null) / 2f);   // its own line's middle
                 scale = sel ? 1.1f : 1f;
             } else if (c instanceof ImageView) {
-                ((ImageView) c).setImageTintList(tint(sel ? Color.WHITE : INK_DIM));
+                // An app's own icon keeps its colours, a little dimmer when not selected; a glyph is tinted.
+                if (c.getTag() == SIDE_ART) c.setAlpha(sel ? 1f : SIDE_ART_DIM);
+                else ((ImageView) c).setImageTintList(tint(sel ? Color.WHITE : INK_DIM));
                 scale = sel ? 1.15f : 1f;
             } else {
                 continue;
@@ -2536,6 +2623,143 @@ public class XmbActivity extends Activity {
             if (!r.item.key.equals(key)) continue;
             r.detail.setText(text);
             if (r == selectedRow()) r.detail.setVisibility(View.VISIBLE);
+        }
+    }
+
+    // ---- open apps ---------------------------------------------------------------------------------------------
+
+    /** When the open apps were last read (elapsedRealtime): moving onto the item reads them at most this often. */
+    private long runningReadAt;
+    private static final long RUNNING_FRESH_MS = 3000;
+    /** The open apps' list, to tell it from the side list's other levels once a reading comes back. */
+    private SideHandler runningSide;
+
+    /** The packages of the apps Home shows: the ones Open apps lists. */
+    private java.util.Set<String> shownApps() {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (XmbCatalog.Category c : cats) for (XmbCatalog.Item i : c.items) if (i.pkg != null) out.add(i.pkg);
+        return out;
+    }
+
+    private String appTitle(String pkg) {
+        for (XmbCatalog.Category c : cats) for (XmbCatalog.Item i : c.items) if (pkg.equals(i.pkg)) return i.title;
+        return pkg;
+    }
+
+    /** Which apps are open, read in the background (about 0.1 s): the item's line changes, then runs then. */
+    private void readRunning(boolean force, Runnable then) {
+        long now = SystemClock.elapsedRealtime();
+        if (!force && runningReadAt > 0 && now - runningReadAt < RUNNING_FRESH_MS && XmbRunning.last() != null) {
+            if (then != null) then.run();
+            return;
+        }
+        runningReadAt = now;
+        XmbRunning.refresh(this, shownApps(), s -> {
+            if (isDestroyed()) return;
+            setItemDetail(XmbCatalog.RUNNING, XmbRunning.line(this, s));
+            if (then != null && resumed) then.run();
+        });
+    }
+
+    private boolean runningShown() {
+        return runningSide != null && sideVisible() && sideHandler == runningSide;
+    }
+
+    /**
+     * Settings > Open apps: Close all apps, then every app left running with the memory it holds, the most first;
+     * OK closes. An app Android keeps (playing music in the background) says it is in use.
+     */
+    private void showRunning(int focus) {
+        XmbRunning.Snapshot s = XmbRunning.last();
+        boolean showing = runningShown();
+        if (s == null || s.apps == null || s.apps.isEmpty()) {
+            if (showing) closeSide(false);
+            showToast(getString(s == null || s.apps == null ? R.string.xmb_running_no_access_toast : R.string.xmb_running_none));
+            return;
+        }
+        List<String> texts = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
+        List<Drawable> art = new ArrayList<>();
+        texts.add(getString(R.string.xmb_running_close_all));
+        icons.add(R.drawable.ic_xmb_cleaning_services);
+        art.add(null);
+        for (XmbRunning.App a : s.apps) {
+            // Its memory once Android has measured it (a process just started has no figure yet).
+            String text = appTitle(a.pkg) + (a.kb > 0 ? ", " + XmbRunning.size(a.kb) : "");
+            if (!a.closable()) text += ", " + getString(R.string.xmb_running_in_use);
+            texts.add(text);
+            icons.add(R.drawable.ic_xmb_apps);
+            art.add(a.icon);
+        }
+        List<XmbRunning.App> apps = s.apps;
+        runningSide = i -> closeApps(i == 0 ? apps : Collections.singletonList(apps.get(i - 1)), i);
+        sideQuiet = showing;   // after closing: the entries left slide into place
+        // Nearer the column than Settings' lists: an app's name and its memory take more room than a setting.
+        showSide(texts, icons, art, focus, runningSide, null, MENU_X, true);
+    }
+
+    /** Apps XmbCloser closed in Settings, and the entry picked: once Home is back, what came of it and what is left. */
+    private List<XmbRunning.App> closed;
+    private int closedAt;
+
+    /**
+     * Closes the apps (Close all: every one listed): Force stop in the TV's Settings, pressed by the remote-button
+     * helper (XmbCloser) under a black screen, then Home again, saying what came of it and showing what is left.
+     */
+    private void closeApps(List<XmbRunning.App> which, int at) {
+        List<String> pkgs = new ArrayList<>(), titles = new ArrayList<>();
+        for (XmbRunning.App a : which) {
+            pkgs.add(a.pkg);
+            titles.add(appTitle(a.pkg));
+        }
+        XmbDebug.log("closing " + TextUtils.join(", ", pkgs));
+        boolean helper = XmbCloser.close(this, which, titles, (stopped, cancelled) -> {
+            closed = which;
+            closedAt = at;
+            if (resumed) afterClosing();   // else when Home is back (onResume)
+        });
+        if (helper) return;
+        // Without the helper, Android's own way, which some TVs still allow an app (not the Mi Box S: only its own).
+        runningReadAt = SystemClock.elapsedRealtime();
+        XmbRunning.close(this, pkgs, shownApps(), after -> report(which, after, at, false));
+    }
+
+    private void afterClosing() {
+        List<XmbRunning.App> which = closed;
+        closed = null;
+        if (which == null) return;
+        int at = closedAt;
+        runningReadAt = SystemClock.elapsedRealtime();
+        XmbRunning.refresh(this, shownApps(), after -> report(which, after, at, true));
+    }
+
+    /** Says what closing came to; the list again without what went (back on it after Settings: reopen). */
+    private void report(List<XmbRunning.App> which, XmbRunning.Snapshot after, int at, boolean reopen) {
+        if (isDestroyed()) return;
+        setItemDetail(XmbCatalog.RUNNING, XmbRunning.line(this, after));
+        if (!resumed) return;
+        int gone = 0;
+        long freed = 0;
+        for (XmbRunning.App a : which) {
+            if (after.find(a.pkg) == null) {
+                gone++;
+                freed += a.kb;
+            }
+        }
+        // The memory back only when Android had measured it (a process just started has no figure yet).
+        if (which.size() == 1) {
+            String title = appTitle(which.get(0).pkg);
+            showToast(gone == 0 ? getString(R.string.xmb_running_failed, title) : freed > 0
+                    ? getString(R.string.xmb_running_closed, title, XmbRunning.size(freed))
+                    : getString(R.string.xmb_running_closed_plain, title));
+        } else {
+            showToast(gone == 0 ? getString(R.string.xmb_running_failed_all) : freed > 0
+                    ? getResources().getQuantityString(R.plurals.xmb_running_closed_all, gone, gone, XmbRunning.size(freed))
+                    : getResources().getQuantityString(R.plurals.xmb_running_closed_all_plain, gone, gone));
+        }
+        boolean onItem = !rows.isEmpty() && XmbCatalog.RUNNING.equals(selectedRow().item.key);
+        if (reopen ? onItem && !sideVisible() && after.apps != null && !after.apps.isEmpty() : runningShown()) {
+            showRunning(at);
         }
     }
 

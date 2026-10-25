@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Keys only: no accessibilityEventTypes (0), so the system never calls into the launcher for
-     accessibility events, which both services ignore. Key filtering depends only on
-     flagRequestFilterKeyEvents and canRequestFilterKeyEvents, not on the event types. -->
+<!-- Keys, and on this branch the XMB's Open apps: no accessibilityEventTypes (0), so the system never calls into the
+     launcher for accessibility events, which the service ignores. Key filtering depends only on
+     flagRequestFilterKeyEvents and canRequestFilterKeyEvents, not on the event types. canRetrieveWindowContent and
+     flagReportViewIds let XmbCloser find Force stop and OK in the TV's Settings when the owner closes an app; it reads
+     the screen only then. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagRequestFilterKeyEvents"
+    android:accessibilityFlags="flagRequestFilterKeyEvents|flagReportViewIds"
     android:canRequestFilterKeyEvents="true"
+    android:canRetrieveWindowContent="true"
     android:description="@string/input_key_service_description" />

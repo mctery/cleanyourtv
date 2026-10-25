@@ -246,7 +246,7 @@ final class XmbCatalog {
             for (Item i : c.items) {
                 // An app's detail ("last opened ...") changes by the minute and is updated in place; a built-in
                 // item's detail is a setting's value and counts.
-                boolean live = i.pkg != null || SPEEDTEST.equals(i.key);
+                boolean live = i.pkg != null || SPEEDTEST.equals(i.key) || RUNNING.equals(i.key);
                 sb.append(' ').append(i.key).append('|').append(i.title).append('|').append(live ? "" : i.detail)
                         .append('|').append(i.banner != null).append('|').append(i.action).append('\n');
             }
@@ -270,9 +270,12 @@ final class XmbCatalog {
 
     /** Built-in actions run by XmbActivity. */
     static final String ACTION_TOGGLE_SOUNDS = "toggle_sounds", ACTION_MUSIC = "music", ACTION_COLOR = "color",
-            ACTION_MENUS = "menus", ACTION_STATUS = "status", ACTION_DIAG = "diagnostics", ACTION_SPEEDTEST = "speedtest";
+            ACTION_MENUS = "menus", ACTION_STATUS = "status", ACTION_DIAG = "diagnostics", ACTION_SPEEDTEST = "speedtest",
+            ACTION_RUNNING = "running";
     /** The speed test's item: its line is updated in place while it measures, not part of the signature. */
     static final String SPEEDTEST = "sys:speedtest";
+    /** Open apps: its line (the apps left running, the memory free) is read in the background and changes in place. */
+    static final String RUNNING = "sys:running";
 
     /** What the Settings category says about the XMB's own settings. */
     static final class SettingsState {
@@ -424,6 +427,8 @@ final class XmbCatalog {
                 R.drawable.ic_xmb_tv, in.display));
         settings.add(builtIn(ctx, "sys:apps", R.string.xmb_apps, R.string.xmb_apps_detail,
                 R.drawable.ic_xmb_apps, in.appSettings));
+        settings.add(new Item(RUNNING, ctx.getString(R.string.xmb_running), XmbRunning.line(ctx, XmbRunning.last()), ctx,
+                R.drawable.ic_xmb_memory_alt, null, ACTION_RUNNING));
         settings.add(new Item("sys:sounds", ctx.getString(state.soundsOn ? R.string.xmb_sounds_on : R.string.xmb_sounds_off),
                 ctx.getString(state.soundsAvailable ? R.string.xmb_sounds_detail : R.string.xmb_sounds_missing), ctx,
                 state.soundsOn ? R.drawable.ic_xmb_volume_up : R.drawable.ic_xmb_volume_off, null, ACTION_TOGGLE_SOUNDS));

@@ -157,6 +157,28 @@
     <string name="xmb_display_detail">Resolution, HDR and audio output</string>
     <string name="xmb_apps">Apps</string>
     <string name="xmb_apps_detail">Turn apps on or off</string>
+    <string name="xmb_running">Open apps</string>
+    <string name="xmb_running_ram">%1$s of %2$s RAM free</string>
+    <string name="xmb_running_none">No apps left open</string>
+    <string name="xmb_running_no_access">the list needs a permission given over ADB</string>
+    <string name="xmb_running_no_access_toast">Seeing the open apps needs a permission given over ADB</string>
+    <string name="xmb_running_close_all">Close all apps</string>
+    <string name="xmb_close_app">Close</string>
+    <string name="xmb_running_in_use">in use</string>
+    <string name="xmb_running_closed">Closed %1$s, %2$s of RAM back</string>
+    <string name="xmb_running_closed_plain">Closed %1$s</string>
+    <plurals name="xmb_running_closed_all_plain">
+        <item quantity="one">Closed %1$d app</item>
+        <item quantity="other">Closed %1$d apps</item>
+    </plurals>
+    <plurals name="xmb_running_closed_all">
+        <item quantity="one">Closed %1$d app, %2$s of RAM back</item>
+        <item quantity="other">Closed %1$d apps, %2$s of RAM back</item>
+    </plurals>
+    <string name="xmb_running_failed">Could not close %1$s: Force stop in its app info does it</string>
+    <string name="xmb_running_failed_all">Could not close the apps</string>
+    <string name="xmb_closing">Closing %1$s</string>
+    <string name="xmb_closing_count">App %1$d of %2$d</string>
     <string name="xmb_sounds_on">Menu sounds: on</string>
     <string name="xmb_sounds_off">Menu sounds: off</string>
     <string name="xmb_sounds_detail">Press OK to switch</string>

@@ -19,10 +19,12 @@ and between two of its own Android has no saved choice and shows its "Choose Hom
 The grid's on-TV tools (Launcher settings, Edit dock, Reorder, the app library, module cards) go with it.
 The order of the apps is still `dock_apps` from `config.xml` or a theme.
 
-Unlike the main project's launcher, this branch asks for three more permissions, all granted at install:
-`INTERNET` for the weather and the speed test, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote
-battery icons, and
-`QUERY_ALL_PACKAGES` to see an app Play Store is still downloading.
+Unlike the main project's launcher, this branch asks for more permissions. Granted at install: `INTERNET` for the
+weather and the speed test, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote battery icons,
+`QUERY_ALL_PACKAGES` to see an app Play Store is still downloading, and `KILL_BACKGROUND_PROCESSES` for Open apps on
+TVs that still let an app close another. Granted only over ADB (`mytv/install.sh`): `DUMP` and
+`PACKAGE_USAGE_STATS`, for the list of open apps (below). The remote-button helper may read the screen
+(`canRetrieveWindowContent`), for closing apps in Settings.
 
 ## Keys
 
@@ -31,9 +33,12 @@ battery icons, and
 | Left, Right | Change category |
 | Up, Down | Move in the category |
 | OK | Open |
-| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to another category, App info |
+| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to another category, App info, and Close for an app left open |
 | Back, Left | Closes the options (from Move, back to the options) |
 | Home | From an app: back to where you were. On the XMB: Video, first item |
+
+Home pressed on Home is a short pause for Android (pause, the intent, resume, in one go): the music, the wave and the
+status row keep going through it, and only what a longer pause stops (an app in front, the assistant) stops them.
 
 After 45 seconds without a key the menu fades out and only the wave stays (`xmb_idle_seconds` in config.xml or a
 theme; `0` keeps it up). Any key brings it back.
@@ -111,6 +116,32 @@ ping 32 ms, 1 minute ago". It runs only when asked: four tiny requests for the r
 uses. The first second does not count (the connection getting up to speed), and the ping is the TCP round trip the
 service measured itself. Home going behind an app stops it.
 
+## Open apps
+
+Settings > Open apps says how many apps are left running behind Home and how much memory is free, "3 apps, 540 MB
+of 1.9 GB RAM free". OK lists them, the most memory first, each with what it holds ("Crossy Road, 513 MB"; one
+playing in the background says it is in use), under Close all apps. OK on an app closes it, Close all apps closes
+every one, and Hold OK on an open app in any category offers Close too.
+
+Android shows an app only its own processes, so the list is what the activity manager reports
+(`dumpsys activity processes`, read in the background in about 0.1 s). That takes `DUMP` and `PACKAGE_USAGE_STATS`,
+which only ADB can grant: `adb shell pm grant com.gathin.tvhome android.permission.DUMP`, the same for
+`android.permission.PACKAGE_USAGE_STATS` (`mytv/install.sh` does both). Without them the item shows the free memory
+and says the list needs them.
+
+Closing is Force stop, as by hand. On the Mi Box S an ordinary app may end only its own processes
+(`killBackgroundProcesses` answers `Invalid packageName` for any other, as on Android 14), so the remote-button
+helper, an accessibility service that is already on, opens the app's page in the TV's Settings and presses Force stop
+and then OK, under a black screen naming the app; Home comes back when it is done, about a second an app. It presses
+nothing else: the row whose text is Settings' own "Force stop" (read from the Settings app, so in the TV's language)
+on the page that shows the app's package name, then OK under a title and warning that are Settings' own force-stop
+texts. Anything else, or nothing within a few seconds, and it leaves that app and says it could not close it. Keys
+wait meanwhile; Back stops it. It reads the screen only while closing. Without the helper, Close tries
+`killBackgroundProcesses`, which some TVs still allow.
+
+A force-stopped app starts afresh when opened and stays asleep until then; apps that Google Play services call on
+(Play Store, Play Movies) come back by themselves.
+
 ## Diagnostics
 
 Settings > Diagnostics plays the boot animation, switches the wave between 30 and 60 frames a second (60 is smoother
@@ -163,7 +194,7 @@ The ready-made menus of your own (Games, Tools, Social...) collect apps by name 
 `hidden_apps`,
 `app_labels`, `app_banners` and `launch_actions` apply as on the grid.
 
-Settings holds TV settings, Display and sound, Apps and the menu-sound switch. Network shows the connection with
+Settings holds TV settings, Display and sound, Apps, Open apps and the menu-sound switch. Network shows the connection with
 its address, the speed test and the Private DNS in use.
 
 ## Sounds

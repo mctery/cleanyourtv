@@ -92,6 +92,8 @@ final class XmbStyle {
     static final float COLON_DIM = 0.25f;
     /** Side-list entries by their distance from the selected one; further ones are hidden. */
     static final float[] SIDE_ALPHA = {1f, 0.62f, 0.44f, 0.28f, 0.14f};
+    /** An app's own icon in a side list (Open apps) when its entry is not selected: its colours, dimmer. */
+    static final float SIDE_ART_DIM = 0.6f;
     /** The entries above the custom colour while its pickers are open (those below give way). */
     static final float SIDE_UNDER_PICKER = 0.2f;
     /** The glow round the selected side-list entry's text. */

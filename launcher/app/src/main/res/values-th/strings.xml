@@ -73,6 +73,26 @@
     <string name="xmb_display_detail">ความละเอียด HDR และเสียงออก</string>
     <string name="xmb_apps">แอป</string>
     <string name="xmb_apps_detail">เปิดหรือปิดใช้แอป</string>
+    <string name="xmb_running">แอปที่เปิดอยู่</string>
+    <string name="xmb_running_ram">RAM ว่าง %1$s จาก %2$s</string>
+    <string name="xmb_running_none">ไม่มีแอปเปิดค้าง</string>
+    <string name="xmb_running_no_access">ดูรายการแอปต้องให้สิทธิ์ผ่าน ADB ก่อน</string>
+    <string name="xmb_running_no_access_toast">ดูแอปที่เปิดอยู่ต้องให้สิทธิ์ผ่าน ADB ก่อน</string>
+    <string name="xmb_running_close_all">ปิดแอปทั้งหมด</string>
+    <string name="xmb_close_app">ปิดแอป</string>
+    <string name="xmb_running_in_use">กำลังทำงาน</string>
+    <string name="xmb_running_closed">ปิด %1$s แล้ว ได้ RAM คืน %2$s</string>
+    <string name="xmb_running_closed_plain">ปิด %1$s แล้ว</string>
+    <plurals name="xmb_running_closed_all_plain">
+        <item quantity="other">ปิด %1$d แอปแล้ว</item>
+    </plurals>
+    <plurals name="xmb_running_closed_all">
+        <item quantity="other">ปิด %1$d แอปแล้ว ได้ RAM คืน %2$s</item>
+    </plurals>
+    <string name="xmb_running_failed">ปิด %1$s ไม่สำเร็จ ลองกดบังคับให้หยุดในข้อมูลแอป</string>
+    <string name="xmb_running_failed_all">ปิดแอปไม่สำเร็จ</string>
+    <string name="xmb_closing">กำลังปิด %1$s</string>
+    <string name="xmb_closing_count">แอปที่ %1$d จาก %2$d</string>
     <string name="xmb_sounds_on">เสียงเมนู: เปิด</string>
     <string name="xmb_sounds_off">เสียงเมนู: ปิด</string>
     <string name="xmb_sounds_detail">กด OK เพื่อสลับ</string>

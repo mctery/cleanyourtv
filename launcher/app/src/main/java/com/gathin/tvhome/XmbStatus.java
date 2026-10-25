@@ -451,6 +451,8 @@ final class XmbStatus {
                 return audio != 0 ? icon(audio) : null;
             }
             case "temperature": {
+                // Asked once: where apps may not read it, every try was a denied read in the system's log.
+                if (!temperatureReadable()) return null;
                 int t = socTemperature();
                 if (t < 0) return null;
                 boolean hot = t >= HOT_CELSIUS;
