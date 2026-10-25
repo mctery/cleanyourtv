@@ -36,7 +36,7 @@ import java.util.Set;
  * stop, OK. On the Mi Box S (Android 11 with a later security change) an ordinary app may end only its own processes
  * (killBackgroundProcesses answers "Invalid packageName" for any other), and Force stop is the system's own way to
  * close an app; the remote-button helper, an accessibility service already running, presses the two buttons while a
- * black screen with the app's name covers Settings.
+ * dimmed picture of Home with the app's name covers Settings.
  *
  * It presses nothing but those two: the row whose text is Settings' own "Force stop" (read from the Settings app, so
  * in the TV's language) on the page that shows the app's package name, then OK in the confirmation whose title and
@@ -45,7 +45,15 @@ import java.util.Set;
  */
 final class XmbCloser {
     private static final String TAG = "TvHome.Closer";
-    private static final long STEP_MS = 120, PAGE_MS = 4000, CONFIRM_MS = 3000, AFTER_MS = 350, REVEAL_MS = 450;
+    /** Steps and limits of the work in Settings; then how long after Home has the focus the cover goes (a frame or
+     *  two for Home to draw), or at the latest. */
+    private static final long STEP_MS = 120, PAGE_MS = 4000, CONFIRM_MS = 3000, AFTER_MS = 350, HOME_DRAWN_MS = 120,
+            REVEAL_LATEST_MS = 3000;
+    /** How dark the picture of the screen behind the message is: the menu's own text must not compete with it. */
+    private static final float SCRIM = 0.74f;
+
+    /** On the Home intent it sends at the end: Home comes back as it was, not as for the Home button. */
+    static final String EXTRA_BACK = "com.gathin.tvhome.closer_back";
 
     /** Told on the main thread when it is over: the apps it pressed Force stop for, and whether Back stopped it. */
     interface Listener {
@@ -60,7 +68,7 @@ final class XmbCloser {
         return current != null;
     }
 
-    /** A key while it works: held (the page under the black screen must not move), Back stops it. */
+    /** A key while it works: held (the page under the cover must not move), Back stops it. */
     static boolean onKey(KeyEvent event) {
         XmbCloser c = current;
         if (c == null) return false;
@@ -68,14 +76,31 @@ final class XmbCloser {
         return true;
     }
 
-    /** Closes the apps one after another; false (nothing done) when the helper is not there or one already runs. */
-    static boolean close(Context ctx, List<XmbRunning.App> apps, List<String> titles, Listener listener) {
+    /**
+     * Closes the apps one after another, a picture of the screen (backdrop, dimmed; black without one) behind the
+     * message; false (nothing done) when the helper is not there or one already runs.
+     */
+    static boolean close(Context ctx, List<XmbRunning.App> apps, List<String> titles, android.graphics.Bitmap backdrop,
+                         Listener listener) {
         InputKeyService svc = InputKeyService.instance;
         Texts t = texts(ctx);
         if (svc == null || t == null || current != null || apps.isEmpty()) return false;
-        current = new XmbCloser(svc, t, apps, titles, listener);
+        current = new XmbCloser(svc, t, apps, titles, backdrop, listener);
         current.start();
         return true;
+    }
+
+    /** The one whose cover waits for Home to be on screen again (homeBack), or null. */
+    @android.annotation.SuppressLint("StaticFieldLeak")
+    private static XmbCloser leaving;
+
+    /** Home has the screen again (its window has the focus): the cover fades a frame later, showing it as it was. */
+    static void homeBack() {
+        XmbCloser c = leaving;
+        if (c == null) return;
+        leaving = null;
+        c.handler.removeCallbacks(c.hideRunnable);
+        c.handler.postDelayed(c.hideRunnable, HOME_DRAWN_MS);
     }
 
     /** The Settings app and its texts, in the TV's language: Force stop, its warning, and OK. */
@@ -129,26 +154,31 @@ final class XmbCloser {
     private final List<XmbRunning.App> apps;
     private final List<String> titles;
     private final Listener listener;
+    private final android.graphics.Bitmap backdrop;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable hideRunnable = this::hideCover;
     private final List<String> stopped = new ArrayList<>();
     private int index, phase;
     private long phaseAt;
+    /** An app's page was asked for: Settings came up over Home, which must be brought back. */
+    private boolean opened;
     private volatile boolean cancelled;
-    private View cover;
-    private TextView line, count;
-    private ImageView icon;
+    /** The cover this closing shows, while it does. */
+    private Cover cover;
 
-    private XmbCloser(AccessibilityService svc, Texts t, List<XmbRunning.App> apps, List<String> titles, Listener listener) {
+    private XmbCloser(AccessibilityService svc, Texts t, List<XmbRunning.App> apps, List<String> titles,
+                      android.graphics.Bitmap backdrop, Listener listener) {
         this.svc = svc;
         this.t = t;
         this.apps = apps;
         this.titles = titles;
+        this.backdrop = backdrop;
         this.listener = listener;
     }
 
     private void start() {
         showCover();
-        // A moment for the black to come up before Settings does.
+        // A moment for the cover to come up before Settings does.
         handler.postDelayed(this::step, 160);
     }
 
@@ -183,6 +213,7 @@ final class XmbCloser {
                     next();
                     break;
                 }
+                opened = true;
                 to(FIND);
                 break;
             case FIND: {
@@ -235,14 +266,19 @@ final class XmbCloser {
     private void finish() {
         handler.removeCallbacks(stepRunnable);
         current = null;
-        // Home in front again (its return animation plays under the black), then the black goes.
-        try {
-            svc.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                    .setPackage(svc.getPackageName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (RuntimeException e) {
-            svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
+        // Home in front again, under the cover; when no app's page was asked for, Home was never left.
+        if (opened) {
+            try {
+                svc.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .setPackage(svc.getPackageName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra(EXTRA_BACK, true));
+            } catch (RuntimeException e) {
+                svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
+            }
         }
-        handler.postDelayed(this::hideCover, REVEAL_MS);
+        // The cover goes once Home has the screen again (homeBack), showing the same picture it hid.
+        leaving = this;
+        handler.postDelayed(hideRunnable, REVEAL_LATEST_MS);
         Log.i(TAG, "stopped " + stopped + (cancelled ? " (stopped with Back)" : ""));
         listener.done(stopped, cancelled);
     }
@@ -285,69 +321,177 @@ final class XmbCloser {
         return null;
     }
 
-    // ---- the black screen over Settings ------------------------------------------------------------------------
+    // ---- the cover over Settings -----------------------------------------------------------------------------
 
-    private void showCover() {
-        Context c = svc;
-        float s = c.getResources().getDisplayMetrics().widthPixels / 1920f;
-        FrameLayout root = new FrameLayout(c);
-        root.setBackgroundColor(Color.BLACK);
-        LinearLayout col = new LinearLayout(c);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setGravity(Gravity.CENTER_HORIZONTAL);
-        icon = new ImageView(c);
-        col.addView(icon, new LinearLayout.LayoutParams(Math.round(112 * s), Math.round(112 * s)));
-        line = new TextView(c);
-        line.setTypeface(c.getResources().getFont(R.font.outfit_light));
-        line.setTextSize(TypedValue.COMPLEX_UNIT_PX, 40 * s);
-        line.setTextColor(XmbStyle.INK);
-        line.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.topMargin = Math.round(28 * s);
-        col.addView(line, lp);
-        count = new TextView(c);
-        count.setTypeface(c.getResources().getFont(R.font.outfit_regular));
-        count.setTextSize(TypedValue.COMPLEX_UNIT_PX, 24 * s);
-        count.setTextColor(XmbStyle.INK_DIM);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
-        clp.topMargin = Math.round(12 * s);
-        col.addView(count, clp);
-        root.addView(col, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
-        WindowManager.LayoutParams wlp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                PixelFormat.TRANSLUCENT);
-        try {
-            svc.getSystemService(WindowManager.class).addView(root, wlp);
-            cover = root;
+    /**
+     * The cover's window: made at the first closing, then kept between closings while Home is on screen, left out of
+     * the picture (a window at alpha 0 is not drawn at all). Taking a window down holds up this process's drawing for
+     * a quarter of a second, and the wave stopped every time the cover went; so it goes once Home is out of sight
+     * (homeHidden), and the next closing uses it again.
+     */
+    private static final class Cover {
+        final AccessibilityService owner;
+        final WindowManager wm;
+        final WindowManager.LayoutParams params;
+        final FrameLayout root;
+        final ImageView picture, icon;
+        final View scrim;
+        final TextView line, count;
+        /** Coming up, up, or fading out: a closing uses it. */
+        boolean busy;
+
+        Cover(AccessibilityService c) {
+            owner = c;
+            wm = c.getSystemService(WindowManager.class);
+            float s = c.getResources().getDisplayMetrics().widthPixels / 1920f;
+            root = new FrameLayout(c);
+            root.setBackgroundColor(Color.BLACK);
             root.setAlpha(0f);
-            root.animate().alpha(1f).setDuration(150).start();
-        } catch (RuntimeException e) {
-            Log.w(TAG, "no cover: " + e);   // Settings shows instead; the closing works the same
+            picture = new ImageView(c);
+            picture.setScaleType(ImageView.ScaleType.FIT_XY);
+            root.addView(picture, new FrameLayout.LayoutParams(-1, -1));
+            scrim = new View(c);
+            scrim.setBackgroundColor(Color.BLACK);
+            scrim.setAlpha(SCRIM);
+            root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+            LinearLayout col = new LinearLayout(c);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setGravity(Gravity.CENTER_HORIZONTAL);
+            icon = new ImageView(c);
+            col.addView(icon, new LinearLayout.LayoutParams(Math.round(112 * s), Math.round(112 * s)));
+            line = new TextView(c);
+            line.setTypeface(c.getResources().getFont(R.font.outfit_light));
+            line.setTextSize(TypedValue.COMPLEX_UNIT_PX, 40 * s);
+            line.setTextColor(XmbStyle.INK);
+            line.setShadowLayer(12 * s, 0, 0, Color.BLACK);   // clear of the dimmed menu behind it
+            line.setGravity(Gravity.CENTER_HORIZONTAL);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.topMargin = Math.round(28 * s);
+            col.addView(line, lp);
+            count = new TextView(c);
+            count.setTypeface(c.getResources().getFont(R.font.outfit_regular));
+            count.setTextSize(TypedValue.COMPLEX_UNIT_PX, 24 * s);
+            count.setTextColor(XmbStyle.INK_DIM);
+            count.setShadowLayer(10 * s, 0, 0, Color.BLACK);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+            clp.topMargin = Math.round(12 * s);
+            col.addView(count, clp);
+            root.addView(col, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+            params = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                    PixelFormat.TRANSLUCENT);
+            wm.addView(root, params);
         }
-    }
 
-    private void label(XmbRunning.App app, int i) {
-        if (cover == null) return;
-        Drawable d = app.icon;
-        icon.setImageDrawable(d);
-        icon.setVisibility(d != null ? View.VISIBLE : View.GONE);
-        line.setText(svc.getString(R.string.xmb_closing, titles.get(i)));
-        count.setText(apps.size() > 1 ? svc.getString(R.string.xmb_closing_count, i + 1, apps.size()) : "");
-    }
-
-    private void hideCover() {
-        View v = cover;
-        cover = null;
-        if (v == null) return;
-        v.animate().alpha(0f).setDuration(300).withEndAction(() -> {
+        /** In the picture, or left out of it: at alpha 0 the window is not drawn at all. */
+        void inPicture(boolean on) {
+            float a = on ? 1f : 0f;
+            if (params.alpha == a) return;
+            params.alpha = a;
             try {
-                svc.getSystemService(WindowManager.class).removeView(v);
+                wm.updateViewLayout(root, params);
+            } catch (RuntimeException ignored) {
+                // gone with the service
+            }
+        }
+
+        void remove() {
+            root.animate().cancel();
+            try {
+                wm.removeView(root);
             } catch (RuntimeException ignored) {
                 // already gone with the service
             }
+        }
+    }
+
+    /** The cover kept for the next closing, or null. */
+    @android.annotation.SuppressLint("StaticFieldLeak")
+    private static Cover kept;
+    /** Home is on screen (from its onStart to its onStop): the kept cover may stay. */
+    private static boolean homeVisible = true;
+
+    /** Home came up. */
+    static void homeShown() {
+        homeVisible = true;
+    }
+
+    /** Home is out of sight: the kept cover, unless a closing uses it, goes now, when its hitch is not seen. */
+    static void homeHidden() {
+        homeVisible = false;
+        if (kept != null && !kept.busy) dropCover();
+    }
+
+    /** The helper was turned off: its windows went with it. */
+    static void serviceGone() {
+        dropCover();
+    }
+
+    private static void dropCover() {
+        Cover c = kept;
+        kept = null;
+        if (c != null) c.remove();
+    }
+
+    private void showCover() {
+        Cover c = kept;
+        if (c != null && c.owner != svc) {
+            dropCover();   // from an earlier binding of the helper
+            c = null;
+        }
+        if (c == null) {
+            try {
+                c = new Cover(svc);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "no cover: " + e);   // Settings shows instead; the closing works the same
+                return;
+            }
+            kept = c;
+        }
+        cover = c;
+        c.busy = true;
+        // The screen as it was, dimmed: the message comes up over the menu, not over a black screen.
+        c.picture.setImageBitmap(backdrop);
+        c.picture.setVisibility(backdrop != null ? View.VISIBLE : View.GONE);
+        c.scrim.setVisibility(backdrop != null ? View.VISIBLE : View.GONE);
+        c.icon.setImageDrawable(null);
+        c.line.setText("");
+        c.count.setText("");
+        c.root.animate().cancel();
+        c.root.setAlpha(0f);
+        c.inPicture(true);
+        // In a layer drawn once: the full-screen picture is not drawn again for every frame of the fade.
+        c.root.animate().alpha(1f).setDuration(150).withLayer().start();
+    }
+
+    private void label(XmbRunning.App app, int i) {
+        Cover c = cover;
+        if (c == null) return;
+        Drawable d = app.icon;
+        c.icon.setImageDrawable(d);
+        c.icon.setVisibility(d != null ? View.VISIBLE : View.GONE);
+        c.line.setText(svc.getString(R.string.xmb_closing, titles.get(i)));
+        c.count.setText(apps.size() > 1 ? svc.getString(R.string.xmb_closing_count, i + 1, apps.size()) : "");
+    }
+
+    private void hideCover() {
+        handler.removeCallbacks(hideRunnable);
+        if (leaving == this) leaving = null;
+        Cover c = cover;
+        cover = null;
+        if (c == null) return;
+        c.root.animate().cancel();
+        c.root.animate().alpha(0f).setDuration(300).withLayer().withEndAction(() -> {
+            // Out of the picture and kept for the next closing; the screen's picture goes.
+            c.inPicture(false);
+            c.picture.setImageDrawable(null);
+            c.icon.setImageDrawable(null);
+            c.busy = false;
+            if (c != kept) c.remove();
+            else if (!homeVisible) dropCover();
         }).start();
     }
 }

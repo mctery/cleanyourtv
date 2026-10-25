@@ -137,12 +137,13 @@ and says the list needs them.
 Closing is Force stop, as by hand. On the Mi Box S an ordinary app may end only its own processes
 (`killBackgroundProcesses` answers `Invalid packageName` for any other, as on Android 14), so the remote-button
 helper, an accessibility service that is already on, opens the app's page in the TV's Settings and presses Force stop
-and then OK, under a black screen naming the app; Home comes back when it is done, about a second an app. It presses
-nothing else: the row whose text is Settings' own "Force stop" (read from the Settings app, so in the TV's language)
-on the page that shows the app's package name, then OK under a title and warning that are Settings' own force-stop
-texts. Anything else, or nothing within a few seconds, and it leaves that app and says it could not close it. Keys
-wait meanwhile; Back stops it. It reads the screen only while closing. Without the helper, Close tries
-`killBackgroundProcesses`, which some TVs still allow.
+and then OK, under a dimmed picture of the screen naming the app, about a second an app. Home then comes back as it
+was, with no return animation, the list still open and the music playing on: the entries left slide up into place
+and their memory figures change where they stand. It presses nothing else: the row whose text is Settings' own
+"Force stop" (read from the Settings app, so in the TV's language) on the page that shows the app's package name,
+then OK under a title and warning that are Settings' own force-stop texts. Anything else, or nothing within a few
+seconds, and it leaves that app and says it could not close it. Keys wait meanwhile; Back stops it. It reads the
+screen only while closing. Without the helper, Close tries `killBackgroundProcesses`, which some TVs still allow.
 
 A force-stopped app starts afresh when opened and stays asleep until then; apps that Google Play services call on
 (Play Store, Play Movies) come back by themselves.

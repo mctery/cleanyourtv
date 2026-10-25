@@ -324,6 +324,7 @@ public class XmbActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        XmbCloser.homeShown();
         if (stopped && !introDue) returnDue = true;
         stopped = false;
         dirty = true;   // last-opened times and the network line change while an app is in front
@@ -342,7 +343,10 @@ public class XmbActivity extends Activity {
         if (booting) skipBoot();
         updateAccent();
         if (dirty) reload();
-        if (!rows.isEmpty() && XmbCatalog.RUNNING.equals(selectedRow().item.key)) readRunning(false, null);
+        // Back from closing apps, afterClosing reads them below: once is enough (each reading is work for Android).
+        if (closed == null && !rows.isEmpty() && XmbCatalog.RUNNING.equals(selectedRow().item.key)) {
+            readRunning(false, null);
+        }
         tick();
         startBlink();
         // Standby long enough with Home in front: waking up is turning the TV on (xmb_boot_animation "power").
@@ -375,11 +379,13 @@ public class XmbActivity extends Activity {
         } else if (introDue) {
             playIntro(jingle);
         } else if (returnDue) {
-            playReturn();
+            if (closingApps) settle();   // the same picture as before the cover: nothing to bring in
+            else playReturn();
         } else if (pendingAnim != null || launching) {
             settle();
         }
         introDue = returnDue = false;
+        closingApps = false;
         if (closed != null) afterClosing();   // back from closing apps in Settings
     }
 
@@ -388,7 +394,7 @@ public class XmbActivity extends Activity {
         putDown();
         resumed = false;
         preloading = 0;
-        closeSide(true);
+        if (!closingApps) closeSide(true);   // closing apps: the list stays for when Home is back
         closePrompt();
         toast.animate().cancel();
         toast.setAlpha(0f);
@@ -419,7 +425,7 @@ public class XmbActivity extends Activity {
         }
         XmbSpeedTest.cancel();
         status.stop();
-        music.pause();
+        if (!closingApps) music.pause();   // closing apps takes a second: the music goes on
         if (waveView != null) waveView.onPause();
     }
 
@@ -427,6 +433,7 @@ public class XmbActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         XmbDebug.log(hasFocus ? R.string.xmb_log_focus_back : R.string.xmb_log_focus_lost);
+        if (hasFocus) XmbCloser.homeBack();   // Home on screen again: the closing cover can go
         if (resumed && !dreaming) {
             if (hasFocus) music.resume(300);
             else if (!promptOpen) music.pause();
@@ -483,6 +490,7 @@ public class XmbActivity extends Activity {
     protected void onStop() {
         pauseFully();
         stopped = true;
+        XmbCloser.homeHidden();   // the closing cover's window, if one was kept, goes while Home is out of sight
         // Stopped because the TV went to standby with Home in front, not because an app came up: noted, so that
         // waking up after a while plays the boot animation.
         android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
@@ -508,6 +516,8 @@ public class XmbActivity extends Activity {
         // back from one, Android starts Home before it hands over the intent, so stopped is already false here and
         // returnDue (set by onStart) tells the two apart.
         if (stopped || returnDue || introDue || intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
+        // Brought back by XmbCloser after closing apps, not the Home button: the place and the list stay.
+        if (intent.getBooleanExtra(XmbCloser.EXTRA_BACK, false)) return;
         XmbDebug.log(R.string.xmb_log_home_on_home);
         putDown();
         if (booting) {
@@ -2144,6 +2154,10 @@ public class XmbActivity extends Activity {
     private float sideX = SIDE_X;
     private boolean sideDims;
     private final List<String> sideTexts = new ArrayList<>();
+    /** Who each entry is, matched across a quiet rebuild: its text, unless the list gave its own (sideNextIds). */
+    private final List<String> sideIds = new ArrayList<>();
+    /** For the next showSide: who each entry is when its text can change (an open app's memory), else null. */
+    private List<String> sideNextIds;
     private final List<View> sideViews = new ArrayList<>();
     private int sideIdx;
     private SideHandler sideHandler;
@@ -2186,15 +2200,22 @@ public class XmbActivity extends Activity {
         optionsFor = null;
         boolean quiet = sideQuiet;
         sideQuiet = false;
+        List<String> ids = new ArrayList<>(texts.size());
+        for (int i = 0; i < texts.size(); i++) {
+            ids.add(sideNextIds != null && i < sideNextIds.size() ? sideNextIds.get(i) : sideKey(texts.get(i), i));
+        }
+        sideNextIds = null;
         // What was on screen: the quiet way (a value changed, an item carried), entries that stay keep their place to
         // slide from and a changed one cross-fades; to another level, the old entries fade out where they stand.
+        // An entry with an identity of its own (an open app) stays itself when its text changes: it slides, its new
+        // figure in place, instead of fading out at one place and in at another.
         Map<String, Float> wasY = new HashMap<>();
         boolean wasShowing = sideVisible() && animMs > 0 && resumed;
         if (wasShowing) {
             for (int i = 0; i < sideViews.size(); i++) {
                 View e = sideViews.get(i);
-                String key = sideKey(sideTexts.get(i), i);
-                if (quiet && texts.contains(sideTexts.get(i))) wasY.put(key, e.getY());
+                String key = sideIds.get(i);
+                if (quiet && ids.contains(key)) wasY.put(key, e.getY());
                 else sideAway(e, quiet ? 0f : -SIDE_FROM / 2);
             }
         }
@@ -2207,6 +2228,8 @@ public class XmbActivity extends Activity {
         sideViews.clear();
         sideTexts.clear();
         sideTexts.addAll(texts);
+        sideIds.clear();
+        sideIds.addAll(ids);
         for (int i = 0; i < texts.size(); i++) {
             LinearLayout e = new LinearLayout(this);
             e.forceHasOverlappingRendering(false);   // an icon beside its text: nothing overlaps
@@ -2252,7 +2275,7 @@ public class XmbActivity extends Activity {
         if (animMs > 0 && quiet) {
             for (int i = 0; i < sideViews.size(); i++) {
                 View e = sideViews.get(i);
-                Float was = wasY.get(sideKey(texts.get(i), i));
+                Float was = wasY.get(ids.get(i));
                 float to = e.getAlpha(), y = e.getY();
                 if (was != null) {
                     if (Math.abs(was - y) < 1f && sideX == wasX) continue;
@@ -2439,6 +2462,7 @@ public class XmbActivity extends Activity {
         side.removeAllViews();
         sideViews.clear();
         sideTexts.clear();
+        sideIds.clear();
         sideHandler = null;
         sideBackAction = null;
         sideOkDown = false;
@@ -2877,13 +2901,15 @@ public class XmbActivity extends Activity {
             showToast(getString(s == null || s.apps == null ? R.string.xmb_running_no_access_toast : R.string.xmb_running_none));
             return;
         }
-        List<String> texts = new ArrayList<>();
+        List<String> texts = new ArrayList<>(), ids = new ArrayList<>();
         List<Integer> icons = new ArrayList<>();
         List<Drawable> art = new ArrayList<>();
         texts.add(getString(R.string.xmb_running_close_all));
         icons.add(R.drawable.ic_xmb_cleaning_services);
         art.add(null);
+        ids.add("#all");
         for (XmbRunning.App a : s.apps) {
+            ids.add(a.pkg);   // its memory changes with every reading: the entry is the app
             // Its memory once Android has measured it (a process just started has no figure yet).
             String text = appTitle(a.pkg);
             if (a.kb > 0) text = XmbCatalog.join(this, text, XmbRunning.size(a.kb));
@@ -2895,6 +2921,7 @@ public class XmbActivity extends Activity {
         List<XmbRunning.App> apps = s.apps;
         runningSide = i -> closeApps(i == 0 ? apps : Collections.singletonList(apps.get(i - 1)), i);
         sideQuiet = showing;   // after closing: the entries left slide into place
+        sideNextIds = ids;
         // Nearer the column than Settings' lists: an app's name and its memory take more room than a setting.
         showSide(texts, icons, art, focus, runningSide, null, MENU_X, true);
     }
@@ -2914,15 +2941,67 @@ public class XmbActivity extends Activity {
             titles.add(appTitle(a.pkg));
         }
         XmbDebug.log(R.string.xmb_log_closing, TextUtils.join(", ", pkgs));
-        boolean helper = XmbCloser.close(this, which, titles, (stopped, cancelled) -> {
-            closed = which;
-            closedAt = at;
-            if (resumed) afterClosing();   // else when Home is back (onResume)
+        // The screen as it is, behind the closing message: no black flash, and Home comes back to the same picture.
+        snapshot(shot -> {
+            if (!resumed) return;
+            closingApps = XmbCloser.close(this, which, titles, shot, (stopped, cancelled) -> {
+                closed = which;
+                closedAt = at;
+                if (resumed) {   // Settings never came up: Home was not left
+                    closingApps = false;
+                    XmbCloser.homeBack();
+                    afterClosing();
+                }
+            });
+            if (closingApps) return;
+            // Without the helper, Android's own way, which some TVs still allow an app (not the Mi Box S: only its own).
+            runningReadAt = SystemClock.elapsedRealtime();
+            XmbRunning.close(this, pkgs, shownApps(), after -> report(which, after, at, false));
         });
-        if (helper) return;
-        // Without the helper, Android's own way, which some TVs still allow an app (not the Mi Box S: only its own).
-        runningReadAt = SystemClock.elapsedRealtime();
-        XmbRunning.close(this, pkgs, shownApps(), after -> report(which, after, at, false));
+    }
+
+    /**
+     * Apps being closed in Settings under XmbCloser's cover: Home keeps its place, side list and music meanwhile, and
+     * comes back without the return animation (it moved the screen after every app closed).
+     */
+    private boolean closingApps;
+
+    /** What is on screen, the wave under the menu, at half size; null when it cannot be copied. */
+    private void snapshot(java.util.function.Consumer<Bitmap> then) {
+        int w = 960, h = 540;
+        Bitmap menu = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Bitmap[] wave = {null};
+        java.util.function.IntConsumer menuDone = result -> {
+            Bitmap out = wave[0];
+            if (result == android.view.PixelCopy.SUCCESS) {
+                if (out == null) {
+                    out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    out.eraseColor(Color.BLACK);
+                }
+                new Canvas(out).drawBitmap(menu, 0f, 0f, null);
+            }
+            menu.recycle();
+            then.accept(out);
+        };
+        try {
+            if (waveView == null) {
+                android.view.PixelCopy.request(getWindow(), menu, menuDone::accept, later);
+                return;
+            }
+            Bitmap back = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            android.view.PixelCopy.request(waveView, back, result -> {
+                if (result == android.view.PixelCopy.SUCCESS) wave[0] = back;
+                else back.recycle();
+                try {
+                    android.view.PixelCopy.request(getWindow(), menu, menuDone::accept, later);
+                } catch (RuntimeException e) {
+                    menuDone.accept(android.view.PixelCopy.ERROR_UNKNOWN);
+                }
+            }, later);
+        } catch (RuntimeException e) {
+            menu.recycle();
+            then.accept(null);
+        }
     }
 
     private void afterClosing() {
@@ -2958,8 +3037,13 @@ public class XmbActivity extends Activity {
                     ? getResources().getQuantityString(R.plurals.xmb_running_closed_all, gone, gone, XmbRunning.size(freed))
                     : getResources().getQuantityString(R.plurals.xmb_running_closed_all_plain, gone, gone));
         }
-        boolean onItem = !rows.isEmpty() && XmbCatalog.RUNNING.equals(selectedRow().item.key);
-        if (reopen ? onItem && !sideVisible() && after.apps != null && !after.apps.isEmpty() : runningShown()) {
+        boolean left = after.apps != null && !after.apps.isEmpty();
+        if (runningShown()) {
+            // Still open (kept while Settings closed the app): the entries left close up; none left, it goes.
+            if (left) showRunning(at);
+            else closeSide(false);
+        } else if (reopen && left && !sideVisible() && !rows.isEmpty()
+                && XmbCatalog.RUNNING.equals(selectedRow().item.key)) {
             showRunning(at);
         }
     }

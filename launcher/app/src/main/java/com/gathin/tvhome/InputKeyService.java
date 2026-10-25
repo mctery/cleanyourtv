@@ -58,7 +58,7 @@ public class InputKeyService extends AccessibilityService {
 
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
-        // Closing apps in Settings under a black screen: keys wait (Back stops it).
+        // Closing apps in Settings under the closing cover: keys wait (Back stops it).
         if (XmbCloser.running()) return XmbCloser.onKey(event);
         // A scancode entry is more specific than any keycode, so it goes first.
         if (RemoteKeys.handle(this, event, appScancodes.get(event.getScanCode()),
@@ -80,6 +80,7 @@ public class InputKeyService extends AccessibilityService {
     public boolean onUnbind(Intent intent) {
         running = false;
         instance = null;
+        XmbCloser.serviceGone();
         if (repairRecord) ServiceRepair.disconnected(this, getClass());
         return super.onUnbind(intent);
     }
