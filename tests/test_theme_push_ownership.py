@@ -210,6 +210,67 @@ class ThemePushTest(unittest.TestCase):
             put = self.command_for(name)
             self.assertLess(put.index("content write"), put.index("cp "), put)
 
+    def test_collection_image_extensions_are_case_insensitive(self):
+        collection = self.theme / "wallpapers"
+        collection.mkdir()
+        extensions = ("jpg", "JPG", "JpG", "jpeg", "JPEG", "JpEg",
+                      "png", "PNG", "PnG", "webp", "WEBP", "WeBp")
+        images = {f"image-{index}.{extension}": b"\x00\xffimage bytes " + extension.encode()
+                  for index, extension in enumerate(extensions)}
+        for name, data in images.items():
+            (collection / name).write_bytes(data)
+        for name in ("notes.txt", "animation.gif", "image.avif", "backup.jpg.txt"):
+            (collection / name).write_bytes(b"not a collection image")
+        previous = self.device / "wallpapers"
+        previous.mkdir()
+        (previous / "old.jpg").write_bytes(b"old collection")
+
+        result = self.run_theme(str(self.theme))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(path.name for path in previous.iterdir()), sorted(images),
+                         "the collection must contain every supported image and no unsupported files")
+        for name, data in images.items():
+            with self.subTest(name=name):
+                self.assertEqual((previous / name).read_bytes(), data)
+                self.assertIn(["write", "--uri", f"content://com.gathin.tvhome.theme/wallpapers/{name}"],
+                              self.provider_calls())
+
+    def test_mixed_case_image_extension_still_checks_the_filename(self):
+        collection = self.theme / "wallpapers"
+        collection.mkdir()
+        (collection / "bad name.JpG").write_bytes(b"image bytes")
+
+        result = self.run_theme(str(self.theme))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("unsupported wallpaper filename: bad name.JpG", result.stderr)
+        self.assertFalse((self.device / "wallpapers" / "bad name.JpG").exists())
+
+    def test_mixed_case_collection_is_replaced_and_reset_without_the_provider(self):
+        collection = self.theme / "wallpapers"
+        collection.mkdir()
+        first = collection / "previous.JpG"
+        first.write_bytes(b"\x00\xfffirst picture")
+
+        pushed = self.run_theme(str(self.theme), FAKE_NO_PROVIDER="1")
+        self.assertEqual(pushed.returncode, 0, pushed.stdout + pushed.stderr)
+        device_collection = self.device / "wallpapers"
+        self.assertEqual(sorted(path.name for path in device_collection.iterdir()), [first.name])
+        self.assertEqual((device_collection / first.name).read_bytes(), first.read_bytes())
+
+        first.unlink()
+        second = collection / "next.PnG"
+        second.write_bytes(b"\x00\xffsecond picture")
+        replaced = self.run_theme(str(self.theme), FAKE_NO_PROVIDER="1")
+        self.assertEqual(replaced.returncode, 0, replaced.stdout + replaced.stderr)
+        self.assertEqual(sorted(path.name for path in device_collection.iterdir()), [second.name],
+                         "without the provider, the shell must still remove the previous collection")
+        self.assertEqual((device_collection / second.name).read_bytes(), second.read_bytes())
+
+        reset = self.run_theme("--reset", FAKE_NO_PROVIDER="1")
+        self.assertEqual(reset.returncode, 0, reset.stdout + reset.stderr)
+        self.assertEqual(list(device_collection.iterdir()), [],
+                         "reset must remove mixed-case images even without the provider")
+
     def test_the_windows_script_puts_files_the_same_way(self):
         """theme.ps1 cannot run here, so pin the order that the fix depends on."""
         script = (TOOLS / "theme.ps1").read_text(encoding="utf-8")
@@ -218,6 +279,57 @@ class ThemePushTest(unittest.TestCase):
         self.assertLess(put.index("rm -f $dir/$name"), put.index("content write"), put)
         self.assertLess(put.index("content write"), put.index("cp $t $dir/$name"), put)
         self.assertIn("Unsupported operation", put, "Android 8/9 exit 0 without writing; cp has to run then")
+
+    def test_reset_clears_the_wallpaper_collection(self):
+        """--reset promises the built-in config.xml, but the picker reads wallpapers/ from the TV itself."""
+        (self.device / "config.json").write_bytes(self.config)
+        (self.device / "wallpaper.jpg").write_bytes(b"old wallpaper")
+        collection = self.device / "wallpapers"
+        collection.mkdir()
+        for name in ("01-dusk.jpg", "02-dunes.PNG", "03-lake.webp"):
+            (collection / name).write_bytes(b"\x89picture")
+        (collection / "captions.txt").write_text("01-dusk.jpg\tDusk\n", encoding="utf-8")
+        result = self.run_theme("--reset")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(p.name for p in collection.iterdir()), [],
+                         "the launcher's wallpaper picker lists this folder itself, so a reset that leaves "
+                         "pictures in it still offers the theme it just removed")
+        self.assertFalse((self.device / "config.json").exists())
+        self.assertFalse((self.device / "wallpaper.jpg").exists())
+
+    def test_a_push_and_a_reset_clear_the_collection_with_one_command(self):
+        """One clear, used by both paths: two copies are how --reset came to miss the collection."""
+        (self.theme / "wallpapers").mkdir()
+        (self.theme / "wallpapers" / "dusk.jpg").write_bytes(b"\xff\xd8dusk")
+        pushed = self.run_theme(str(self.theme))
+        self.assertEqual(pushed.returncode, 0, pushed.stdout + pushed.stderr)
+        push_commands = self.shell_commands()
+        self.log.unlink()
+        reset = self.run_theme("--reset")
+        self.assertEqual(reset.returncode, 0, reset.stdout + reset.stderr)
+        reset_commands = self.shell_commands()
+
+        clear = [c for c in push_commands
+                 if "content delete --uri content://com.gathin.tvhome.theme/wallpapers 2>/dev/null" in c]
+        self.assertEqual(len(clear), 1, f"a push empties the collection first: {push_commands}")
+        self.assertIn(f"{DEVICE_DIR}/wallpapers/*.[jJ][pP][gG]", clear[0])
+        self.assertIn(f"{DEVICE_DIR}/wallpapers/*.[wW][eE][bB][pP]", clear[0],
+                      "the shell fallback clears every extension spelling the script pushes")
+        joined = " | ".join(reset_commands)
+        self.assertIn(clear[0], joined,
+                      "the reset has to run the very same clear, or the two paths drift apart again")
+        self.assertIn(f"content delete --uri content://com.gathin.tvhome.theme/wallpapers/captions.txt", joined)
+
+    def test_the_windows_script_clears_the_collection_on_reset(self):
+        """theme.ps1 cannot run here, so the -Reset branch is pinned as text against theme.sh."""
+        script = (TOOLS / "theme.ps1").read_text(encoding="utf-8")
+        reset = next(line for line in script.splitlines() if line.strip().startswith("& $py -I tv.py \"mkdir -p $dir"))
+        self.assertIn("$(Drop 'wallpapers/captions.txt')", reset)
+        self.assertIn("$clearWallpapers", reset, "one shared clear, as in theme.sh")
+        clear = next(line for line in script.splitlines() if line.startswith("$clearWallpapers = "))
+        self.assertIn("rm -f $dir/wallpapers/*.jpg", clear)
+        self.assertIn("content delete --uri $uri/wallpapers", clear)
+        self.assertNotIn("captions", clear, "the captions file is dropped on its own line, as in theme.sh")
 
 
 if __name__ == "__main__":

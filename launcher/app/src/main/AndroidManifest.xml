@@ -62,6 +62,11 @@
         <intent>
             <action android:name="android.settings.MANAGE_APPLICATIONS_SETTINGS" />
         </intent>
+        <!-- The tile menu and the app library offer App info only where this resolves (SystemSettings.appInfo). -->
+        <intent>
+            <action android:name="android.settings.APPLICATION_DETAILS_SETTINGS" />
+            <data android:scheme="package" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -171,7 +176,9 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-        <!-- Remote Settings button panel (settings_key_panel); own task so the app behind stays put. -->
+        <!-- Remote Settings button panel (settings_key_panel); own task so the app behind stays put.
+             No screenOrientation: a translucent activity may not request one on Android 8.0 (API 26),
+             which throws IllegalStateException in onCreate (#1122); a TV is landscape anyway. -->
         <activity
             android:name=".QuickSettingsActivity"
             android:exported="false"
@@ -179,7 +186,6 @@
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:noHistory="true"
-            android:screenOrientation="landscape"
             android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen" />
         <activity
             android:name=".HomeSettingsActivity"
@@ -203,6 +209,22 @@
                 android:resource="@xml/home_key_service" />
         </service>
 
+        <!-- market://launch?id=<package>: package-name app launches from the Android TV Remote service
+             (Home Assistant android_tv_remote), normally served by the stock launcher. -->
+        <activity
+            android:name=".AppLaunchActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="market" android:host="launch" />
+            </intent-filter>
+        </activity>
+
         <!-- The same clock, started by Home itself after home_idle_clock_minutes without input. -->
         <activity
             android:name=".ClockActivity"
@@ -210,6 +232,16 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- stock_home_redirect at boot: HomeKeyService opens this invisible activity once, so the screen behind
+             it sends a window event when it closes (HomeKeyService.probeAtBoot). -->
+        <activity
+            android:name=".ProbeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Screensaver: pick it in Settings, or `settings put secure screensaver_components
              com.gathin.tvhome/.ClockDream` over adb. -->

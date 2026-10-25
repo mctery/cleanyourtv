@@ -31,6 +31,10 @@ public class InputKeyService extends AccessibilityService {
     static volatile boolean running;
     /** The bound service, for the XMB's Open apps, which has it press Force stop in Settings (XmbCloser). */
     static volatile InputKeyService instance;
+    /** consume_volume_keys: Volume Up/Down go to VolumeKeys instead of on to the firmware. */
+    private boolean consumeVolumeKeys;
+    /** Stops key filtering while a game controller is connected; null unless gamepad_passthrough and key_filter. */
+    private GamepadPassthrough gamepads;
 
     @Override
     protected void onServiceConnected() {
@@ -43,11 +47,17 @@ public class InputKeyService extends AccessibilityService {
         repairRecord = config.restoreKeyServices;
         if (repairRecord) ServiceRepair.connected(this, getClass());
         inputKeycodes = config.inputKeycodes;
+        consumeVolumeKeys = config.consumeVolumeKeys;
         appKeys = RemoteKeys.parseAppKeys(config.appKeys);
         appScancodes = RemoteKeys.parseAppScancodes(config.appKeys);
         RemoteKeys.applyKeyFilter(this, config.keyFilter);
         holdAppKeys = RemoteKeys.parseHoldAppKeys(config.appKeys);
         holdAppScancodes = RemoteKeys.parseHoldAppScancodes(config.appKeys);
+        // gamepad_passthrough, off by default. Only with key_filter on: off, the service never filters keys.
+        if (config.gamepadPassthrough && config.keyFilter && gamepads == null) {
+            gamepads = new GamepadPassthrough(this);
+            gamepads.start();
+        }
     }
 
     private boolean isInputKey(int keyCode) {
@@ -60,6 +70,7 @@ public class InputKeyService extends AccessibilityService {
     protected boolean onKeyEvent(KeyEvent event) {
         // Closing apps in Settings under the closing cover: keys wait (Back stops it).
         if (XmbCloser.running()) return XmbCloser.onKey(event);
+        if (consumeVolumeKeys && VolumeKeys.handle(this, event)) return true;
         // A scancode entry is more specific than any keycode, so it goes first.
         if (RemoteKeys.handle(this, event, appScancodes.get(event.getScanCode()),
                 holdAppScancodes.get(event.getScanCode()))) return true;
@@ -83,6 +94,13 @@ public class InputKeyService extends AccessibilityService {
         XmbCloser.serviceGone();
         if (repairRecord) ServiceRepair.disconnected(this, getClass());
         return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        if (gamepads != null) gamepads.stop();
+        if (consumeVolumeKeys) VolumeKeys.stop();
+        super.onDestroy();
     }
 
     @Override

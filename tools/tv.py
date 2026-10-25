@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Minimal ADB-over-TCP client for an Android TV using adb_shell (no adb binary needed).
 
-Set TV_HOST to the TV's IP. Usage:
+Set TV_HOST to the TV's IP (or IP:port). Usage:
     tv.py --probe                      connect and print model / Android version
     tv.py <shell command...>           run one shell command
     tv.py --screenshot <local.png> [KEY ...] [--wait SECONDS]
@@ -9,11 +9,20 @@ Set TV_HOST to the TV's IP. Usage:
     tv.py --batch < commands.txt       one command per line, same connection
     tv.py --push <local> <remote>      small files only (see b64push.py for larger ones)
     tv.py --pull <remote> <local>
+    tv.py --reboot                     return once the reboot request is accepted; the TV may still be restarting
+    tv.py --help                       this text; needs neither the venv nor a TV
 """
 import os
 import re
 import sys
 import time
+
+# -h/--help before the adb_shell imports and before TV_HOST is read: the usage is the first thing a
+# reader types at a script they do not know, and it needs neither the venv nor a TV. The TV_HOST check
+# below exits at import time, so a flag handled after it could never print anything but that error.
+if sys.argv[1:2] and sys.argv[1] in ("-h", "--help"):
+    print((__doc__ or "").strip())
+    sys.exit(0)
 
 from adb_shell.adb_device import AdbDeviceTcp
 from adb_shell.auth.keygen import keygen
@@ -28,11 +37,34 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-HOST = os.environ.get("TV_HOST")
-PORT = int(os.environ.get("TV_PORT", "5555"))
-if not HOST:
+def split_host_port(endpoint):
+    """Split host:port or [ipv6]:port into (host, port_or_none)."""
+    if endpoint.startswith("["):
+        end = endpoint.find("]")
+        if end != -1:
+            host = endpoint[1:end]
+            rest = endpoint[end + 1:]
+            if rest.startswith(":"):
+                return host, rest[1:]
+            return host, None
+    elif endpoint.count(":") == 1:
+        host, port = endpoint.split(":", 1)
+        return host, port
+    return endpoint, None
+
+
+_raw_host = os.environ.get("TV_HOST")
+if not _raw_host:
     sys.exit("Set TV_HOST to your TV's IP address, e.g.  TV_HOST=192.168.1.50 tools/tv.py --probe\n"
              "(find it under Settings → Network, or look for the TV in `arp -a`)")
+HOST, _endpoint_port = split_host_port(_raw_host)
+_port_str = _endpoint_port or os.environ.get("TV_PORT") or "5555"
+try:
+    PORT = int(_port_str)
+    if not (1 <= PORT <= 65535):
+        raise ValueError
+except ValueError:
+    sys.exit(f"not a port number: {_port_str!r}")
 KEYDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adbkey")
 KEY = os.path.join(KEYDIR, "adbkey")
 # Reuse the stock adb key when the TV already trusts it (platform-tools / Android Studio users), so the
@@ -81,12 +113,14 @@ USAGE = """usage:
     tv.py --push <local> <remote>
     tv.py --pull <remote> <local>
     tv.py --batch < commands.txt
+    tv.py --reboot
+    tv.py --help
     tv.py <shell command...>
 """
 # Arguments each known flag takes, the flag included. The shell branch takes anything, so a flag
 # with the wrong count listed here is a typo, not a command for the TV.
 # --screenshot takes its file and then any number of keys, so it is checked by screenshot_args instead.
-ARITY = {"--probe": 1, "--push": 3, "--pull": 3, "--batch": 1}
+ARITY = {"--probe": 1, "--push": 3, "--pull": 3, "--batch": 1, "--reboot": 1}
 
 # screencap writes the PNG on the TV and we pull the file afterwards: adb_shell's shell() decodes
 # what comes back as text, which corrupts an image, and `exec-out screencap -p` returns a broken
@@ -102,12 +136,16 @@ def check_arity(args):
     """Reject a known flag with the wrong argument count before connecting.
 
     Without this, `--screenshot` with a destination missing falls through to the shell branch and
-    the TV tries to run `--screenshot` as a command."""
+    the TV tries to run `--screenshot` as a command. The same goes for a flag this script does not
+    have at all: `--proob` used to be sent to the TV, whose shell answered "inaccessible or not
+    found" while tv.py exited 0, so a mistyped flag looked like a command that ran."""
     if args and args[0] in ARITY and len(args) != ARITY[args[0]]:
         sys.stderr.write(USAGE)
         sys.exit(2)
     if args and args[0] == "--screenshot":
         screenshot_args(args[1:])
+    elif args and args[0].startswith("-") and args[0] not in ARITY:
+        usage_error(f"not a flag of tv.py: {args[0]!r}")
 
 
 def screenshot_args(rest):
@@ -194,6 +232,14 @@ def main():
     args = sys.argv[1:]
     check_arity(args)
     dev = connect()
+    if args == ["--reboot"]:
+        # Native reboot waits for ADB's OKAY, not the shell's CLSE that can be lost as adbd stops (#995).
+        try:
+            dev.reboot()
+        finally:
+            dev.close()
+        print("Reboot request accepted; wait for the TV to restart before reconnecting.")
+        return 0
     status = 0
     if not args or args == ["--probe"]:
         for p in ("ro.product.model", "ro.product.device", "ro.build.version.release",

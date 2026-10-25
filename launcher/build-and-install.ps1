@@ -65,6 +65,11 @@ if ($LASTEXITCODE -ne 0) { throw 'APK upload failed' }
 $out = & $py -I ..\tools\tv.py 'pm install -r /data/local/tmp/tvhome.apk; rm -f /data/local/tmp/tvhome.apk'
 Write-Host $out
 if ("$out" -notmatch 'Success') { throw 'pm install failed; the stock launcher was left untouched' }
+# Stop the instance Android restarted mid-update, which can come up non-occluding (see build-and-install.sh,
+# #1101), and write back a key helper the force stop took off the list. Through stdin: Windows PowerShell 5.1
+# drops the inner double quotes from a native argument.
+'s=$(settings get secure enabled_accessibility_services); a=$(settings get secure accessibility_enabled); am force-stop com.gathin.tvhome; case "$s" in *com.gathin.tvhome*) settings put secure enabled_accessibility_services ""; settings put secure enabled_accessibility_services "$s"; settings put secure accessibility_enabled "$a" ;; esac' |
+    & $py -I ..\tools\tv.py --batch | Out-Null
 # Android 9 only accepts a component here; Android 10+ also takes a bare package name.
 $out = & $py -I ..\tools\tv.py 'cmd package set-home-activity --user 0 com.gathin.tvhome/.XmbHome'
 Write-Host $out
@@ -98,7 +103,8 @@ function Enable-Service([string]$Name) {
     $svc = "com.gathin.tvhome/.$Name"
     # Through stdin: Windows PowerShell 5.1 drops the inner double quotes from a native argument, and the
     # TV's shell then fails with "no closing quote" while the service stays off.
-    ('cmd appops set com.gathin.tvhome AUTO_START allow 2>/dev/null; s=$(settings get secure enabled_accessibility_services); case "$s" in *' + $Name + '*) settings put secure enabled_accessibility_services ""; settings put secure accessibility_enabled 0; sleep 1; settings put secure enabled_accessibility_services "$s" ;; null|"") settings put secure enabled_accessibility_services ' + $svc + ' ;; *) settings put secure enabled_accessibility_services "$s:' + $svc + '" ;; esac; settings put secure accessibility_enabled 1; echo ' + $Name + ' enabled') |
+    # TCL names the op AUTO_START or APP_AUTO_START; without write-settings the grant is lost at the next reboot.
+    ('cmd appops set com.gathin.tvhome AUTO_START allow 2>/dev/null; cmd appops set com.gathin.tvhome APP_AUTO_START allow 2>/dev/null; appops write-settings 2>/dev/null; s=$(settings get secure enabled_accessibility_services); case "$s" in *' + $Name + '*) settings put secure enabled_accessibility_services ""; settings put secure accessibility_enabled 0; sleep 1; settings put secure enabled_accessibility_services "$s" ;; null|"") settings put secure enabled_accessibility_services ' + $svc + ' ;; *) settings put secure enabled_accessibility_services "$s:' + $svc + '" ;; esac; settings put secure accessibility_enabled 1; echo ' + $Name + ' enabled') |
         & $py -I ..\tools\tv.py --batch
 }
 if ($InputKeyService) { Enable-Service 'InputKeyService' }

@@ -28,12 +28,13 @@ from the vsync BEFORE the key and only finishes after it. Matching on the intend
 most of those keys and leaves a sample too small to say anything.
 """
 import argparse
+import atexit
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import statistics
-import subprocess
 import sys
 import time
 
@@ -47,7 +48,7 @@ KEYCODE_NAMES = {19: "KEYCODE_DPAD_UP", 20: "KEYCODE_DPAD_DOWN", 21: "KEYCODE_DP
 
 
 class TV:
-    """The TV, reached through tools/tv.py.
+    """The TV, reached with tools/tv.py's client over one ADB connection.
 
     tools/tv.py is the client this project already ships: it speaks ADB over TCP with the
     adb_shell library, so no adb binary is needed. That matters on macOS, where the platform
@@ -62,44 +63,50 @@ class TV:
         self.client = None
         self._other_app = None
 
-    def _tv_py(self):
-        """The path of tools/tv.py, next to this file."""
-        return str(Path(__file__).resolve().parent / "tv.py")
+    def _connect(self):
+        """tools/tv.py's ADB connection, opened on first use and kept for the whole run.
 
-    def _python(self):
-        """The interpreter that has the adb_shell library.
-
-        tools/tv.py needs adb_shell, which lives in this project's venv (tools/venv). When the
-        venv is there, it is used; otherwise the interpreter running this script is, and
-        tv.py's own error says what to install.
+        Starting tools/tv.py per command paid a Python start and a fresh ADB handshake each time,
+        several per key; through a relay a full run took over 45 minutes.
         """
-        here = Path(__file__).resolve().parent
-        for candidate in (here / "venv" / "bin" / "python",
-                          here / "venv" / "Scripts" / "python.exe"):
-            if candidate.exists():
-                return str(candidate)
-        return sys.executable
-
-    def _run(self, *args, capture=True):
-        """Run tools/tv.py with the given arguments."""
-        cmd = [self._python(), "-I", self._tv_py(), *args]
-        # tv.py reads its target from the environment, including CLI overrides here.
-        env = os.environ.copy()
-        env.update(TV_HOST=self.host, TV_PORT=str(self.port))
-        result = subprocess.run(cmd, capture_output=capture, text=True,
-                                errors="replace" if capture else None, env=env)
-        if result and result.returncode != 0 and not result.stdout.strip():
-            raise SystemExit(f"tools/tv.py failed: {result.stderr.strip()}")
-        return result
+        if self.client is None:
+            here = str(Path(__file__).resolve().parent)
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            # tv.py reads its target from the environment when imported, including CLI overrides here.
+            os.environ["TV_HOST"], os.environ["TV_PORT"] = self.host, str(self.port)
+            try:
+                import tv as tv_client  # noqa: E402
+            except ModuleNotFoundError as e:
+                raise SystemExit(f"bench.py needs {e.name}: python3 -m venv tools/venv && "
+                                 "tools/venv/bin/pip install -r tools/requirements.txt") from e
+            tv_client.HOST, tv_client.PORT = self.host, int(self.port)
+            self.client = tv_client.connect()
+        return self.client
 
     def shell(self, command):
-        """Run one shell command on the TV and return its output.
+        """Run one shell command on the TV and return its output; bytes that aren't UTF-8 become U+FFFD.
 
-        tools/tv.py joins the arguments with a space and runs them in the TV's shell, so the
-        command is passed as it is, without a "shell" subcommand of our own.
+        A dropped connection (the TV went to standby for a moment) is reopened once.
         """
-        result = self._run(command)
-        return result.stdout if result else ""
+        for attempt in (1, 2):
+            try:
+                out = self._connect().shell(command, read_timeout_s=120.0, decode=False)
+                return out.decode("utf-8", "replace") if isinstance(out, bytes) else (out or "")
+            except SystemExit:
+                raise
+            except Exception:
+                self.close()
+                if attempt == 2:
+                    raise
+
+    def close(self):
+        if self.client is not None:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.client = None
 
     def shell_ok(self, command):
         return self.shell(command).strip() == ""
@@ -147,19 +154,41 @@ class TV:
         return self.shell(f"dumpsys {what}")
 
 
+# Keys to read the input log for before deciding this TV doesn't log injected keys.
+KEY_LOG_PROBES = 3
+
+
+def venv_python():
+    """tools/venv's interpreter, which has adb_shell, or None."""
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "venv" / "bin" / "python", here / "venv" / "Scripts" / "python.exe"):
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def key_event_time(tv, keycode, binary=None):
     """The uptime (ms) at which the key went down, read from the input log.
 
     The log line is matched by the key's own name: the buffer holds the keys injected before it,
     and the first line of the buffer is not necessarily the key of this measurement.
     """
-    out = tv.shell("logcat -d -b main")
+    # Some TVs never log injected keys (a TCL C755 on Google TV 14 doesn't), and reading the log costs
+    # seconds there: its main buffer holds about 100 MB. After KEY_LOG_PROBES keys without a line, stop
+    # reading it; measure_key then times the key from just before it was sent, as it always did when
+    # the line was missing. Only the newest lines are read, filtered on the TV.
+    state = vars(tv).setdefault("_key_log", {"seen": False, "misses": 0})
+    if not state["seen"] and state["misses"] >= KEY_LOG_PROBES:
+        return None
+    out = tv.shell("logcat -d -b main -t 2000 | grep injectKeyEvent")
     name = KEYCODE_NAMES.get(keycode, f"keyCode={keycode}")
     for line in reversed(out.splitlines()):
         if "injectKeyEvent" in line and "action=ACTION_DOWN" in line and name in line:
             match = re.search(r"eventTime=(\d+)", line)
             if match:
+                state["seen"] = True
                 return int(match.group(1))
+    state["misses"] += 1
     return None
 
 def android_uptime(tv, package=None, binary=None):
@@ -174,9 +203,9 @@ def android_uptime(tv, package=None, binary=None):
     return int(match.group(1)) if match else None
 
 
-def measure_key(tv, keycode, binary=None):
+def measure_key(tv, keycode, binary=None, package=None):
     """Inject one key and return (response_ms, movement_ms, frames, janky) or None."""
-    package = tv.package_of(tv.home_component())
+    package = package or tv.package_of(tv.home_component())
     # The reset zeroes the gfxinfo counters. Without it, the previous key's frame would still be
     # in the window and the "first frame after the key" would be the previous key's.
     reset_out = tv.shell(f"dumpsys gfxinfo {package} reset")
@@ -348,7 +377,10 @@ def cold_start(tv, component, repeats):
             time.sleep(2)
             tv.shell(f"am force-stop {package}")
             time.sleep(3)
-            out = tv.shell(f"am start -W -n {component}")
+            # An explicit component alone creates a regular task. Start the HOME task,
+            # so the next Home press cannot create a second launcher instance.
+            out = tv.shell(f"am start -W -a android.intent.action.MAIN "
+                           f"-c android.intent.category.HOME -n {component}")
             match = re.search(r"WaitTime:\s*(\d+)", out)
             if match:
                 values.append(int(match.group(1)))
@@ -365,16 +397,19 @@ def return_to_home(tv, component, repeats):
     if not other:
         print("Could not find another app to switch to; the return to Home is not measured.")
         return values
-    # The event log writes the activity as "am_on_resume_called: [0,pkg.Class,action]", so the
-    # class name (the part after the slash) is what identifies the launcher there.
+    # AM/WM resume events identify the activity by its full class name, even when the
+    # resolved component abbreviates it as pkg/.Class.
     class_name = component.split("/", 1)[1] if "/" in component else component
+    if class_name.startswith("."):
+        class_name = component.split("/", 1)[0] + class_name
     for _ in range(repeats):
         tv.shell(f"am start -W -n {other}")
         time.sleep(3)
         clear_log(tv)
         tv.shell("input keyevent 3")
         time.sleep(3)
-        out = tv.shell("logcat -d -b main -b events -v epoch")
+        out = tv.shell("logcat -d -b main -b events -v epoch | grep -e injectKeyEvent "
+                       "-e am_on_resume_called -e wm_on_resume_called")
         key_at = resume_at = None
         for line in out.splitlines():
             # The log indents its lines, so the timestamp is not at the start of the line.
@@ -387,8 +422,9 @@ def return_to_home(tv, component, repeats):
                     key_at = float(stamp.group(1))
             # The LAST resume of the launcher after the key, not the first: the buffer can
             # still hold a resume from before the key was pressed.
-            if "am_on_resume_called" in line and class_name in line and stamp:
-                if key_at is None or float(stamp.group(1)) >= key_at:
+            resumed = re.search(r"\b(?:am|wm)_on_resume_called:\s*\[[^,]*,\s*([^,]+),", line)
+            if resumed and resumed.group(1).strip() == class_name and stamp and key_at is not None:
+                if float(stamp.group(1)) >= key_at:
                     resume_at = float(stamp.group(1))
         if key_at is not None and resume_at is not None:
             values.append(int((resume_at - key_at) * 1000))
@@ -478,8 +514,14 @@ def main():
     args = parser.parse_args()
     if not args.host:
         raise SystemExit("pass --host or set TV_HOST")
+    venv = venv_python()
+    if importlib.util.find_spec("adb_shell") is None and venv \
+            and os.path.realpath(venv) != os.path.realpath(sys.executable):
+        # Started with a Python that lacks adb_shell: run again with the project's venv, which has it.
+        os.execv(venv, [venv, os.path.abspath(__file__), *sys.argv[1:]])
 
     tv = TV(args.host, args.port)
+    atexit.register(tv.close)
     component = tv.home_component()
     if not component:
         raise SystemExit("no component answers HOME on this TV")
@@ -505,7 +547,7 @@ def main():
             return 1
         for index in range(args.keys):
             keycode = DEFAULT_SEQUENCE[index % len(DEFAULT_SEQUENCE)]
-            measured = measure_key(tv, keycode)
+            measured = measure_key(tv, keycode, package=package)
             if measured is None:
                 samples.append({"series": series, "key": keycode, "measured": False})
                 continue

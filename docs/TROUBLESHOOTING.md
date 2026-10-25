@@ -34,6 +34,19 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   close up, switch Wireless debugging off on its own: on a Chromecast with Google TV 4K (`sabrina`)
   turning USB debugging off left the Wireless debugging port accepting connections, and
   `tools/adb-closed.py` only checks 5555. `adb mdns services` lists that port while it is open.
+- **Port 5555 stays closed and there is no Wireless debugging entry either**, so the pair-once recipe
+  above has nothing to pair with: a [Philips 58PUS8505/62 The One, Android TV 12,
+  `STT2.230526.001`](https://github.com/Gathin23/cleanyourtv/issues/1489) reported USB debugging on, no
+  Wireless debugging screen, `adb connect <tv ip>:5555` refused, and a USB cable to the computer that got
+  no connection either. Two routes are left, and the firmware has to offer one of them. The first is the
+  port-scan bullet further down this section: some firmware runs `adbd` on a port of its own, so scan and
+  try each open one with `TV_PORT=<port> tools/tv.py --probe`. The second is the cable, when `adb devices` lists the set
+  while USB debugging is on: `adb tcpip 5555` with the stock `adb` then opens the port, the cable comes
+  out, and `tools/tv.py` reaches the TV over the network. The cable is only a way to open the port, never
+  a way to run these tools: `tools/tv.py` connects with `AdbDeviceTcp(HOST, PORT)` - `<tv ip>:5555`, or
+  `TV_PORT` for another port - and carries no USB transport, so no script here talks to a TV over USB. A
+  set that neither enumerates over USB nor runs `adbd` on any TCP port has no way in, and this repo does
+  not try to get around that.
 - **USB devices go dead while USB debugging is on**, seen on the Xiaomi Mi Box S and the Xiaomi TV
   Box S 3rd gen ([MiTV-AFMU0, Google TV 14](https://github.com/Gathin23/cleanyourtv/issues/737)):
   their firmware switches the USB port to ADB device mode, which cuts the power to a USB speaker or
@@ -48,17 +61,41 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   no way back from the shell on a set with no Wireless debugging, and switching USB debugging off
   stops `adbd` too, so plan one sitting rather than two: switch debugging off at the end, replug the
   adapter, and confirm Ethernet before handing the TV back. The launcher never needs debugging.
+  A Chromecast with Google TV 4K (`sabrina`, `UTTC.250917.004`) kept its USB Ethernet adapter with
+  USB debugging on: `eth0` stayed listed, and Ethernet connected with debugging still on. It printed
+  `host_connected=false` while the adapter was present as `eth0`, so there `host_connected=false` was
+  no proof the adapter was gone ([its list](../examples/google-chromecast-gtv-4k/debloat.txt)).
+- **Port 5555 refuses the connection although network debugging is on**, and no Wireless debugging is
+  advertised, seen on a [Wanbo T6R Max projector](devices/wanbo-t6r-max.md) (MediaTek MT5862, Android 9,
+  `TVOS-04.16.031.01.12`): the firmware starts `adbd` on its own port, 5877 there (`service.adb.tcp.port`),
+  and the TV never shows it. Scan the TV's TCP ports (`nmap -p- <tv ip>`, or a short Python loop over
+  `socket.connect_ex`; skip `nc` on macOS) and try each open port with `TV_HOST=<tv ip> TV_PORT=<port>
+  tools/tv.py --probe`: the ADB one answers, the others time out. Every script here honours `TV_PORT`, and
+  the closing check is `tools/adb-closed.py <tv ip> <port>`.
 - **Close port 5555 when you're done**: plaintext, and a shell for anyone on the LAN when `ro.adb.secure=0`. Steps in the README FAQ.
 - **The TV sits on a separate VLAN or IoT network** and `tools/tv.py` times out although debugging
   is on: the router keeps the computer from reaching it. Add a temporary firewall rule from your
   computer to the TV on tcp/5555 only, and remove it again when you close ADB. Opening the whole
   segment, or moving the TV onto the main network for good, undoes the reason it was separate.
+- **Nothing on the network answers while a VPN runs on the computer**, not even the router: `ping`
+  prints `General failure` on Windows and port 5555 times out, although the TV is on the same Wi-Fi and
+  `arp -a` lists it. Seen with Proton VPN's free plan on Windows 11, working on a Sankey SMART_TV (CVTE,
+  HiSilicon Hi3751V350, Android 12). The VPN client's firewall blocks the local network; marking the
+  Wi-Fi as a private network does not change that. Turn on the client's local-network option and
+  reconnect: Windscribe has Allow LAN traffic (Preferences > Connection) on its free plan, Proton VPN's
+  Allow LAN connections is for paid plans only. Or disconnect the VPN for the session. Turn the option
+  off again afterwards if you use public Wi-Fi.
 - **Windows PowerShell 5.1 adds a byte-order mark** to text piped into a program, which turned the
   first batch command into gibberish. `tv.py` now strips it, and the `.ps1` scripts pipe clean UTF-8.
-- **"Allow USB debugging?" comes back** although `adb devices` already works: `tv.py` used its own
-  key next to the one platform-tools had registered. It now reuses `~/.android/adbkey` when that
-  exists. Every attempt with an unaccepted key queues one more prompt on the TV, so dismiss them all
-  (Back) before testing with key presses.
+- **"Allow USB debugging?" comes back**, or the TV answers `unauthorized` although `adb devices` already
+  works: `tv.py` keeps a key of its own in `tools/adbkey/`, and it only falls back to the stock
+  `~/.android/adbkey` ([#105](https://github.com/Gathin23/cleanyourtv/issues/105)) while that folder does
+  not exist. So a set that was first reached with this client is asked for a key platform-tools never
+  registered, and revoking the authorisations or toggling USB debugging brings the prompt back instead of
+  a connection. Delete the folder and the next run takes the stock key: `rm -rf tools/adbkey`
+  (`rmdir /s /q tools\adbkey` in PowerShell), then `tools/tv.py --probe` and accept that one prompt.
+  Every attempt with an unaccepted key queues one more prompt on the TV, so dismiss them all (Back)
+  before testing with key presses ([#1526](https://github.com/Gathin23/cleanyourtv/issues/1526)).
 - **Git Bash rewrites paths** like `/data/local/tmp` into Windows paths. The scripts set
   `MSYS_NO_PATHCONV=1` for you. Set `JAVA_HOME` and `ANDROID_HOME` before building there.
 
@@ -67,6 +104,13 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
 - **Chained `pm` commands** (`pm disable a; pm disable b`) may silently stop after the first. Run
   one per shell call; `--batch` does exactly that.
 - **Large pushes hang** through the Python client. Use `tools/b64push.py` for APKs.
+- **`tools/tv.py reboot` never comes back.** `reboot` is a shell command, and adbd stops before it
+  sends the shell's last `CLSE`, so the client waits for a reply that cannot arrive: two minutes,
+  then an error, on a TCL 65C935 (`G05_4K_GB`, Google TV 11, AR2101,
+  [#995](https://github.com/Gathin23/cleanyourtv/issues/995)). A chain that reboots and then checks
+  something stalls there. Use `tools/tv.py --reboot`: it sends the reboot through ADB's own service
+  and returns once the request is accepted. The TV is still restarting at that point, so let it
+  answer again (`tools/tv.py --probe`) before the next command.
 - **A `logcat` without the line you expected is not proof that nothing happened.** On a TCL 55C728
   (`G05_4K_GB`, Google TV 11) the main buffer is 1 MiB (`persist.logd.size.main`), and the TV's own
   HDMI, ARC and media logging fills it in well under a minute; around power-on it held about 30
@@ -101,7 +145,7 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   ```sh
   tools/tv.py 'am start -n com.cvte.tv.hkcfac/.MainActivity'
   tools/tv.py 'input keyevent 218; input keyevent 218'
-  tools/tv.py reboot
+  tools/tv.py --reboot             # returns once ADB accepts it; wait for the TV to come back
   tools/tv.py 'settings put global hdmi_control_enabled 1'
   ```
   Press the real Input button afterwards and check the packages are back:
@@ -211,6 +255,18 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   test app does not count as something else: on a Xiaomi Mi TV 4A
   `com.duokan.factorytest/.FactoryLauncher` answers HOME, so the guard leaves it out, along with any
   package named `*factorytest*`, `*factory_test*` or `*factorymode*`.
+- **The TV no longer boots after a list that disabled Android's core packages** (original Mi TV
+  Stick, [#884](https://github.com/Gathin23/cleanyourtv/issues/884)). An agent's list took
+  `com.google.android.permissioncontroller`, `com.google.android.packageinstaller`,
+  `com.google.android.ext.services`, `com.google.android.ext.shared`,
+  `com.google.android.modulemetadata` and the `com.google.android.overlay.modules.*` overlays, plus
+  the stock launcher and setupwraith, and the stick never came back. Those are part of Android
+  itself, not bloat. `tools/disable.sh`, `disable.ps1` and `check.py --fix` now refuse any list that
+  names them (or `com.android.providers.*` other than calendar, contacts, user dictionary and
+  blocked numbers, `com.android.systemui`, `com.android.shell`, `com.android.phone`,
+  `com.android.settings`, `com.android.tv.settings` or `android`), with no switch to override it.
+  If a set is already stuck and still answers ADB, `pm enable` each of those packages and reboot;
+  if ADB is gone too, a factory reset from the recovery menu is usually the only way back.
 - **The TV stays on the boot logo after a list, and disabling the only Home app is enough to do
   it**, seen on a KitKat-era set ([COOP COTV-0001](https://github.com/Gathin23/cleanyourtv/issues/795):
   Realtek `rtd298x`, Android 4.4.2, SDK 19). 17 packages were disabled over Ethernet ADB, each
@@ -270,19 +326,36 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
 - **A reboot on setupwraith's recovery screen factory-reset the TV** (Xiaomi MiTV-MOSR4). Disable
   setupwraith before launcherx. If `mFocusedApp` shows `.RecoveryActivity`, re-enable launcherx
   first and do not reboot. [Notes](devices/xiaomi-mitv-mosr4.md).
+- **Home worked for days, then went black after a power cut** (Acer R4G and Panasonic 4KTV-3MUP,
+  MOKA `R4_GTV`, Google TV 14): the firmware re-enables setupwraith at every cold boot and its
+  `.RecoveryActivity` takes Home. `logcat | grep RecoveryActivity` shows it starting several times a
+  second. Re-enable launcherx as above. [Notes](devices/acer-r4g.md).
 - **Black screen at every boot after the launcher change, LED on, remote dead** (Vision
   2024VISION43STV, CVTE, Android 13: [its list](../examples/vision-2024vision43stv/debloat.txt) has the
   details). With file-based encryption (`getprop ro.crypto.type` says `file`) Android starts Home before
   the first unlock, and only a direct-boot-aware activity can start then. Most firmwares have a
   `FallbackHome` that stands in until the unlock; some, like this CVTE board, do not, and then boot
-  never completes. This repo's launcher is direct-boot-aware; most other launchers are not. Check both
+  never completes. This repo's launcher is only partly direct-boot-aware: `HomeKeyService` declares
+  the flag, so Android binds it while the user is still locked, and `MainActivity`, the activity that
+  answers HOME, does not declare it. The second command below therefore prints
+  `PARTIALLY_DIRECT_BOOT_AWARE` for this launcher and cannot say whether Home exists before the
+  unlock; on a set with no `FallbackHome`, the first command is the one that decides. Check both
   before disabling the stock launcher:
   ```sh
   tools/tv.py 'cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME'
   tools/tv.py 'dumpsys package <new.launcher.package> | grep -o "[A-Z_]*DIRECT_BOOT_AWARE"'
   ```
   No `FallbackHome` in the first and nothing from the second: keep the stock launcher enabled and set
-  Home with `cmd package set-home-activity` only.
+  Home with `cmd package set-home-activity` only. That line is not proof the handover happened: on a set
+  whose stock launcher declares a HOME priority it can print `Success` and change nothing, with the Home
+  role already naming the new launcher while Home still opens the stock one, so read the resolver instead
+  (`tools/tv.py 'cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME'`).
+  When it keeps naming the stock launcher, the set is debloat-only until a boot with the stock launcher
+  disabled has been tried on that exact board - which does not mean the launcher is unusable there: it
+  still opens from the app list and runs, with Home left where it is. The two checks have been run on the
+  Thomson 40FG2S14W (Expressluck `nagata`, Android TV 14 `UKNV.260317.001`) and both fallbacks are there,
+  but that boot has not been tried ([notes](devices/thomson-40fg2s14w.md),
+  [#1350](https://github.com/Gathin23/cleanyourtv/issues/1350)).
 - **Stuck on the boot animation after the launcher change, ADB gone** (JVC LT-43N7115, CVTE
   `TP.SK706S.PC822`, Android 11, [#741](https://github.com/Gathin23/cleanyourtv/discussions/741)): the stock
   launcher `com.cvte.tv.launcher.space` was disabled and a remote-key helper enabled before one reboot.
@@ -300,6 +373,20 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   launcherx is enabled it takes Home back (`set-home-activity` prints `Success` and changes nothing, and
   its home activity can't be disabled from the shell). To switch profile: `pm enable --user 0
   com.google.android.apps.tv.launcherx`, switch in Settings, then disable it again and set Home last.
+- **Voice search for a song or video says "Google Assistant is having trouble processing your request"**
+  once launcherx is disabled, while app commands ("open YouTube") still work. Seen on an onn 4K Streaming
+  Box (`YOC`, Google TV 14, `URO4.260304.011.B1.15051976`). Google TV shows those results in its own home
+  screen: the Assistant sends `VIEW https://tv.google.com/...` to launcherx
+  (`.gateway.LauncherDeepLink`, then `.home.HomeActivity` lists the results, and picking one opens YouTube
+  by package). With launcherx disabled there is nothing to open, and logcat shows `Failed to execute
+  provider.OPEN with status: UNKNOWN_ERROR` within 100 ms. Two things make it look like something else:
+  right after launcherx has run, the Assistant keeps serving results for a while even when it is disabled
+  again, and the failure returns only after a reboot; and nothing in the debloat list matters - with every
+  other package re-enabled it fails the same way. Apps only mode (Settings > Accounts & sign-in) is no way
+  out: it switches the Assistant off. What works: leave launcherx enabled (it is then Home, see the entry
+  above) and open this launcher from its app row, where voice search works normally because the results
+  screen comes up over it; or search inside YouTube with its on-screen mic. The Projectivy community found
+  the same (voice results "need the launcher X search results page").
 - **The remote's mic button does nothing, or opens the Assistant and it never hears you**, seen on a
   Xiaomi TV Box S 3rd gen (`MiTV-AFMU0`, `twilight`, Google TV 14, `V816.0.7.0.UZFAABX`). Two
   packages have to stay enabled, and re-enabling only one of them is what makes this hard to
@@ -315,9 +402,13 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   list keeps both now; the lists that still disable `com.google.android.tv.remote.service` are
   `rca-ai-pont`, `sharp-aquos-tve21f`, `sony-bravia-4k-gb-us`, `sony-xbr-65x900f`,
   `sony-xbr-x900e`, `tcl-32s5k`, `tcl-40s5400a`, `tcl-55s470g`, `tcl-beyondtv2-android-11`,
-  `tcl-g09-google-tv`, `tcl-g10-google-tv`, `xgimi-horizon-s-pro`, `xgimi-mogo-3-pro` and
-  `xiaomi-mi-box-s`. Those TVs haven't been tested for this, but any of them whose remote has a
-  microphone may show the same symptom.
+  `tcl-g09-google-tv`, `xgimi-horizon-s-pro`, `xgimi-mogo-3-pro` and `xiaomi-mi-box-s`. Those TVs
+  haven't been tested for this, but any of them whose remote has a microphone may show the same
+  symptom. The G10 list has since been tested from the other side: on a 43T6C (G10, Realtek, build
+  `STT2.230203.001`) a mic press with `com.google.android.tv.remote.service` disabled logs `Unable to
+  start service Intent { act=...AtvSearchAssistantService ... } U=0: not found` — that service lives in
+  the package — and re-enabling only it, with every other line applied, brought the button back, so
+  `tcl-g10-google-tv` keeps it now.
 - **Casting from a phone fails with "Untrusted device" after setupwraith is disabled**, seen on
   Chromecast with Google TV HD (`boreal`) on Google TV 14 build UTTC.250917.004, the build the
   `examples/google-chromecast-gtv-4k/` list was made on. YouTube on the phone says "Untrusted device.
@@ -434,6 +525,16 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   workaround not working. An app started in the foreground is unaffected, and the side effect, that
   the home-screen channels only refresh while Stremio is open, costs nothing once the recommendation
   rows are disabled anyway.
+- **Every package in a batch is enabled again after the reboot that follows it**, seen on a Hisense
+  HiSmartTV A4 (xiaoyushan, Android TV 11, `RTT2.221108.001` / `00.00.01.18`). It looks like firmware
+  that resets the list at every boot, but it is the timing of the reboot. Android writes package state
+  to disk about ten seconds after a change (AOSP's `WRITE_SETTINGS_DELAY`). A `tools/tv.py reboot`
+  sent straight after `tools/disable.sh` came before that write, so the TV booted with the old state.
+  `dumpsys package <name>` showed `enabled=0` (default) for every package, and `pm list packages -d`
+  was empty. The same package disabled, given 12 seconds, then rebooted stayed at `enabled=3`
+  (disabled-user), and so did every batch applied that way. Wait 15 seconds after the last `pm` command
+  before rebooting, the same wait the tested lists already describe between batches. It is the
+  package-state counterpart of the lazy app-ops write above.
 - **A firmware update quietly undoes the cleanup.** The update installs over the cleaned-up system, so
   every listed package is enabled again, Home goes back to the stock launcher and new preloads
   appear that no list mentions. `tools/venv/bin/python -I tools/check.py <list>` reports the first
@@ -441,18 +542,6 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   cannot know about, so after a big update compare `tools/tv.py 'pm list packages'` with the list
   once by hand. On a TV whose list disables the updater, this only happens when you install an
   update on purpose: enable the updater, update, `check.py --fix`, disable it again.
-
-## Held-down remote keys do not repeat (volume steps once per long press)
-
-On some firmware — seen on a TCL Google TV 12 build — enabling any accessibility service that requests
-key filtering (the launcher's `HomeKeyService` and `InputKeyService`) breaks key auto-repeat: the held
-button produces a single press. With every such service disabled the repeat returns.
-
-There is no way to keep the remote buttons those helpers power *and* the repeat on those builds; choose
-one. To keep the helpers enabled but stop them filtering (repeat works, the buttons they handled go
-dead), push a theme with `"key_filter": false` in `config.json` — the service drops
-`FLAG_REQUEST_FILTER_KEY_EVENTS` at runtime instead of needing the whole service disabled. `config.xml`
-has the same switch as the `key_filter` bool for a rebuild.
 
 ## Accessibility helper enabled but the remote button does nothing
 
@@ -476,6 +565,20 @@ that list. With `restore_key_services` on (`config.xml` or a theme) and `WRITE_S
 (`RESTORE_KEY_SERVICES=1` at install, `-RestoreKeyServices` on Windows), Home puts the helpers that were
 running back on the list the next time it starts; a helper turned off in Settings stays off.
 
+- **Home puts the helper back on the list after a force stop, and it still is not bound.** `dumpsys
+  accessibility` then shows `Bound services:{}`, `accessibility_enabled` falls back to `0`, and the helper
+  sits under `Crashed services`: a killed helper is marked crashed, and Android never binds a crashed
+  service again, whatever the list says. It drops the mark only when it sees the helper leave the list,
+  and after a force stop the list is already empty, so a plain removal changes nothing. `ServiceRepair`
+  therefore adds the helpers, removes them and adds them again, a second apart. Seen on a Hisense SmartTV
+  4K FFM (`songshan`, Android 11, `RTT2.220118.001`), whose standby (`com.hisense.STR_SUSPEND`) kills every
+  third-party app except the one on screen (`PowerVtImp: kill 3rd app`): the remote's app buttons stopped
+  after the first standby with another app open. By hand, the same three writes:
+
+  ```sh
+  tools/tv.py "settings put secure enabled_accessibility_services com.gathin.tvhome/.InputKeyService; sleep 1; settings put secure enabled_accessibility_services ''; sleep 1; settings put secure enabled_accessibility_services com.gathin.tvhome/.InputKeyService"
+  ```
+
 - **Enabled** means the component is in that user's colon-separated list (the class may be written in
   full, `com.gathin.tvhome/com.gathin.tvhome.HomeKeyService`). Match the whole component.
 - **Bound** means it appears under that user's `Bound services` section of the dump (`services` on older
@@ -487,7 +590,10 @@ running back on the list the next time it starts; a helper turned off in Setting
   nothing even when the real Input button works.
 - **Which keycode** a dead button sends: `dumpsys window policy` lists the "global keys" Android routes
   to one app (on Google TV several go to launcherx, which is disabled), and Xiaomi firmware logs every
-  press as `handleAction<keycode>` in `logcat`. Put it in `input_key_keycodes` (opens Inputs) or
+  press as `handleAction<keycode>` in `logcat`. TCL Google TV firmware logs it as
+  `TclPhoneWindowManager: handleKeyBeforeQueueing, key = 4099, down = true` (a TCL 55C728, Google TV 11);
+  read the log straight after the press, as its main buffer there holds well under a minute.
+  Put it in `input_key_keycodes` (opens Inputs) or
   `app_keys` (`keycode:package`, or `hold:keycode:package` for a long press), reinstall with
   `INPUT_KEY_SERVICE=1` and press the real button.
   A press that `logcat` reports as `KEY_UNKNOWN` or `KEY_PROGRAM` cannot be matched by keycode at all,
@@ -513,6 +619,25 @@ running back on the list the next time it starts; a helper turned off in Setting
 - **All vendor buttons die at once** and `logcat` says `GLOBAL_BUTTON ... process is bad`: the
   global-key receiver crashes on the disabled launcherx and Android stops starting it. Map every such
   keycode in the helpers, also for disabled apps. See [the MOSR4 note](devices/xiaomi-mitv-mosr4.md).
+- **The list still names the helper but `accessibility_enabled` is `0`**, so nothing is bound and the
+  button does nothing (not the force stop below): on a TCL C6K Pro (`G08`, Android 14,
+  [#1047](https://github.com/Gathin23/cleanyourtv/issues/1047)) a reboot left
+  `enabled_accessibility_services` naming `com.gathin.tvhome/com.gathin.tvhome.HomeKeyService` while
+  `accessibility_enabled` read `0`, `dumpsys accessibility` showed `Bound services:{}` and the Home
+  button opened Google TV. `restore_key_services` does not repair this state: `ServiceRepair` writes
+  `accessibility_enabled 1` only on the path that also puts a missing helper back on the list, and here
+  the list was complete. Write the flag back, then read the dump again; toggling the service off and on
+  in Accessibility, which is what the owner did, brought the redirect back for that session. Whether the
+  flag survives the next reboot was not retested on that set, and what cleared it is not established.
+  On a TCL 65C655 Pro (`G03`, Android 11, [`examples/tcl-55c725`](../examples/tcl-55c725/README.md)) every
+  one of three reboots left the same state, and there writing the flag back alone bound nothing; clearing
+  `enabled_accessibility_services` and writing it back, as `build-and-install` does, did:
+
+  ```sh
+  tools/tv.py 'settings get secure accessibility_enabled'
+  tools/tv.py 'settings put secure accessibility_enabled 1'
+  tools/tv.py 'dumpsys accessibility'
+  ```
 
 A force-stop switches the helpers off for good: after `am force-stop com.gathin.tvhome` (or Force stop in
 Settings > Apps) Android removes the launcher's services from the enabled list, and they do not come back
@@ -532,6 +657,14 @@ change and the denial is back. Seen on a TCL C89B (Google TV 14, `G08`, `UTT2.25
 reads `[TclAppBoot]:forbid bind service ComponentInfo{com.gathin.tvhome/com.gathin.tvhome.HomeKeyService}`
 and whose `appops get` names the op `AUTO_START`: use the name `appops get` prints. When reporting, give the
 model, build, current user and the relevant redacted lines, not the raw dump.
+
+On a TCL Smart TV Pro (`G05`, Android 11, `AR2101`), the same permission was set through
+**Safety Guard → Permission Shield → Auto Launch Permission**. Temporarily set **Auto manager** to
+**Closed**, set the reference launcher's entry to **Opened**, then restore the original
+**Auto manager** setting. After a reboot,
+`APP_AUTO_START` read `allow` and HomeKeyService was bound without an ADB repair. See the
+[G05 startup-permission check](devices/tcl-55c728-g05-4k-gb.md#further-g05-unit-startup-permission-with-stock-home-retained)
+for the steps, verification and undo; this has not been retested on the G03 or G08 units above.
 
 ## SHIELD TV phone app connects, but no key does anything
 
@@ -585,17 +718,84 @@ Android 11 (SDK 30), build RS8185.3885N:
 Debloat: `tools/disable.sh examples/amazon-fire-tv-aftdec012e/debloat.txt` disables telemetry, ACR, shopping and
 tutorial packages. Undo with `tools/restore.sh examples/amazon-fire-tv-aftdec012e/debloat.txt com.amazon.tv.launcher`.
 
+**Home and the Alexa button do nothing, every other button works**, seen on a Fire TV Stick 4K 1st gen
+(`AFTMM`, `mantis`, Fire OS 6.7.1.1, build `NS6711`). It was there before any debloat and survived a factory
+reset, so check it before blaming a list. The remote is fine: `getevent -lt` shows `KEY_HOMEPAGE` and
+`KEY_SEARCH` arriving from "Amazon Fire TV Remote", and `logcat` shows Fire OS receiving them
+(`mic_button_released`, `handleLongPressOnHome`), yet Home stays put and Alexa never listens. The cause was
+`settings get secure user_setup_complete` answering `0` (with `global device_provisioned` at `1` and the
+Amazon account registered): the first-run setup had been left unfinished, and Android holds back Home and the
+assistant until it is. `settings put secure user_setup_complete 1` brought both buttons back; `0` undoes it.
+A factory reset clears it again, so finish the setup wizard to the end afterwards.
+
+## Remapping the remote's app buttons without a key helper
+
+A process of your own can take the buttons the helpers exist for without binding an accessibility service,
+and the key auto-repeat a helper costs stays: a key-filtering service pushes every key through a filter
+path that drops the repeats, while reading the remote's input device leaves Android's input alone.
+It has to run as the `shell` user, because a normal app cannot open `/dev/input/event*`, so this is not
+something the launcher can grow into — it is a script and a supervisor on the TV. On a Google TV Streamer
+(`kirkwood`, Google TV 14, `UTTK.260317.003`) that was the one way to have both: `HomeKeyService` alone,
+`InputKeyService` alone and both together each stopped the ramp after roughly six steps, and it came back
+the moment the service was unbound ([#796](https://github.com/Gathin23/cleanyourtv/issues/796)).
+
+The Streamer's remote appears as `Google TV Remote Keyboard`, and these are the buttons it sends:
+
+| Button | HID usage | Android keycode |
+| --- | --- | --- |
+| YouTube | `0x000c0077` | `BUTTON_3` (190) |
+| Star | `0x000c0186` | `MACRO_1` (313) |
+| Netflix | `0x000c0078` | `BUTTON_4` |
+
+Find the node by name, not by number: `tools/tv.py 'getevent -pl'` lists every input device with its name
+and the key codes it declares, and the `/dev/input/event<N>` a remote lands on is not stable between boots,
+so a watcher pinned to `event5` stops working after the next reboot and reads as a dead button again.
+
+A reader cannot consume the press. `getevent` observes the events and Android still delivers them to
+whatever answers them today, so a remapped button's stock action runs as well: map the Netflix button and
+Netflix starts too, then sits in the activity back stack. A helper consumes the key it maps — which is why
+the vendor receiver in the "Which keycode" bullet above never sees it — so the buttons you have to
+suppress, rather than duplicate, still need a helper and its repeat trade.
+
+What runs it again after a reboot is the part that is not free. The `shell` user reads
+`/dev/input/eventX` on this unit without root and a script kept under `/data/local/tmp/` runs, but nothing
+there starts itself: Android gives the `shell` user no cron and no init hook without root, so the watcher is
+gone after every reboot and has to be started again from a debugging session you close afterwards. Two
+things fail silently when you do: the script must be detached from the `adb shell` session or it dies with
+it, and a supervisor must not start a second copy. Do not solve the reboot by leaving TCP ADB on so
+something local can restart it — port 5555 reachable from the LAN is a shell on the TV for anything on the
+network, which is why the closing step in [README](../README.md#questions-people-ask) turns it off.
+
 ## A key helper is bound and a held remote button stopped repeating
 
 Hold volume up or down and the volume moves one step per press instead of ramping. The remote may be
 fine and so may the debloat: the ramp is back the moment no key-filtering accessibility service is bound,
 and `getevent -lt` shows whether the repeat still arrives from the remote while the button is held. On a
-TCL 55P71B Pro (`G09`, Google TV 12, `STT2.230203.001.AS23`) it was all or nothing - `HomeKeyService`
+TCL 55P71B Pro (`G09`, Google TV 12, `STT2.230203.001.AS23`, #763) it was all or nothing - `HomeKeyService`
 alone, `InputKeyService` alone and both together all broke it, with `settings put secure
 enabled_accessibility_services ''` plus `accessibility_enabled 0` restoring it. The dumps show
 `capabilities=8` (`CAPABILITY_CAN_FILTER_KEY_EVENTS`), so the platform routes every key through a filter
 path that drops the repeats, before an app sees them; the launcher's own helpers return `false` for keys
-they do not map, so they are not consuming the volume key. Check the state first, do not rewrite it blind:
+they do not map, so they are not consuming the volume key. The same was reported on a Xiaomi MiTV-MOSR4
+(`irobot`, Android 11, `RTM5.220609.003.1265`) with the launcher's own helpers, both and `InputKeyService`
+alone (#944), where the empty list was not tried because it also unhooks the buttons the helpers were
+installed for. An onn 4K Streaming Box (`YOC`, Google TV 14, `URO4.260304.011.B1.15051976`) does the same with
+`HomeKeyService` alone; there `key_filter` false (config.xml or a theme) brought the repeat back with the helper
+still bound, so a helper kept for something other than keys need not cost it. A Hisense 75U75N (`hengshan`,
+Google TV 12, `STT2.230310.002`) with `HomeKeyService` alone does it too, and its log shows where the repeat goes:
+the filter hands volume keys to the window policy first, Hisense's policy sends the CEC step and consumes the key,
+so no helper sees it and nothing repeats (the G09 note has the log). The soundbar is not the condition: that unit
+had one, while a 55U7N on the same board and build steps once per press with `HomeKeyService` alone and no soundbar
+in its report (#1326), so the CEC step is one unit's account of a key the policy takes, not the cause. The 55U7N
+also shows where that board's app buttons go: with launcherx disabled Hisense's own `GlobalKeyReceiver` receives
+295, 607 and 606 and nothing opens, so only a helper answers them
+([the hengshan notes](../examples/hisense-u75-hengshan/README.md)); its held-key capture was not taken. A TCL 55Q77K
+(`G08_4K_US`, Google TV 14, `UTT2.250416.001 AU16`, TV speakers, no soundbar) steps once per press with
+`InputKeyService` alone as well. On that set Settings (83), Netflix (4062), Prime Video (4099) and Apple TV (4160)
+still reach the focused window with launcherx disabled, so Home could answer them without a helper, while YouTube is
+`BUTTON_3`, a global key Android hands to launcherx before any window
+([the G08 US notes](../examples/tcl-g08-us-google-tv/README.md#the-remotes-buttons-with-launcherx-disabled)). Check the
+state first, do not rewrite it blind:
 
 ```sh
 tools/tv.py 'settings get secure enabled_accessibility_services'
@@ -607,5 +807,201 @@ This is a trade, not a defect to fix: the buttons the helpers exist for (a gear 
 `KEYCODE_NOTIFICATION` 83, app buttons sending vendor keycodes such as 4062) were answered by the stock
 home, so on a set whose list disabled launcherx only a helper can answer them. Either keep the repeat and
 install without `INPUT_KEY_SERVICE=1`/`HOME_KEY_SERVICE=1`, or keep the buttons and accept one step per
-press, or leave launcherx enabled and bind nothing. Write back the exact string the first read printed;
-the empty list also unbinds TalkBack. Bisect, keycodes and limits: [the G09 note](devices/tcl-55p71b-g09-key-repeat.md).
+press, or leave launcherx enabled and bind nothing, or keep the services bound and stop them filtering:
+`"key_filter": false` in a theme's `config.json` — the same bool in `config.xml` for a rebuild — makes
+them drop `FLAG_REQUEST_FILTER_KEY_EVENTS` at runtime, so the ramp comes back and the buttons they
+handled go dead, the same trade without a `settings` write. Write back the exact string the first read
+printed; the empty list also unbinds TalkBack. Bisect, keycodes and limits:
+[the G09 note](devices/tcl-55p71b-g09-key-repeat.md).
+
+A [Sony KD-55X9000H PA-firmware follow-up](devices/sony-kd-55x9000h.md#later-remote-key-follow-up-24-october-2026) on Android 12 reproduced the same filter/repeat conflict with a personal fork. Its simultaneous kernel/callback capture saw held Volume in hardware but neither Volume direction in the helper. A separate saved-layout experiment retained Apps and native Volume without key filtering; it requires that fork's companion and Library entry, reserves an application-launch category, and has not been tested across restart/sleep/reconnect. It is not a stock upstream option.
+
+## The soundbar on ARC/eARC falls asleep and the TV does not wake it
+
+A soundbar on the TV's ARC or eARC port can go to standby on its own after a stretch of silence while
+the TV stays on, and starting an app or a video does not bring it back until someone wakes it by hand.
+Seen on a Sony BRAVIA 4K VH2 (KD-55X80J, Google TV 12, `STT2.230505.001.S136`) with a Moto 160SB on
+HDMI 3 (eARC), with the TV's own settings already right (Speakers: Audio system, Audio system prioritisation on, BRAVIA Sync on).
+
+The TV reports the state over ADB. While the soundbar sleeps, both values are `false`:
+
+```sh
+tools/tv.py 'dumpsys hdmi_control | grep -E "mSystemAudioActivated|mArcEstablished"'
+```
+
+Asking for System Audio Mode over HDMI-CEC wakes it, the same request the TV's Speakers → Audio system
+setting sends; the soundbar reconnects about 5 to 8 seconds later:
+
+```sh
+tools/tv.py 'cmd hdmi_control setsam on'
+```
+
+To have that happen without a computer, an app needs the shell: on Android 12 an app cannot send CEC
+itself, and writing the TV's speaker setting needs the maker's own permissions. These were tried on the
+VH2 and do nothing from an app: Android's system-audio setting, volume nudges, and Sony's audio
+service. What does work is an app that keeps Network debugging on and connects to the TV's own ADB on
+`127.0.0.1:5555` with its own key, which the TV asks to allow once, and runs only that one command when
+an app opens or media starts while no `TYPE_HDMI_ARC`/`TYPE_HDMI_EARC` output is listed. The
+[Sony BRAVIA Launcher](https://github.com/udeshvirk/sony-bravia-launcher) in [`SHOWCASE.md`](../SHOWCASE.md)
+does this (`SoundbarWaker.java`). It is a trade-off: Network debugging stays on and the port is open on
+the home network, which the PROMPT's last step closes on purpose; on a set with `ro.adb.secure=0` an open port is a shell for anyone on the network, so only consider it where the TV asks to allow each new key. On Sony, an app can instead open the
+Home Theatre Control panel (`com.sony.dtv.HomeTheatreControl`) for about half a second, which also
+wakes the soundbar and needs no ADB, at the cost of the panel flashing on screen.
+
+## Moonlight: two controllers both drive player 1, or a DualSense button opens the exit prompt
+
+With `HomeKeyService` bound (`HOME_KEY_SERVICE=1`) and filtering keys, Moonlight streaming from Sunshine on a
+TCL G07 (`G07_4K_GB_NF`, Android 11, `AR17`) with a DualSense (`054c:0ce6`) and an Xbox Wireless Controller
+(`045e:0b20`), both over Bluetooth, put both controllers on player 1, and Cross on the DualSense brought up
+Moonlight's exit prompt instead of pressing A. Both controllers were listed in `dumpsys input` as separate
+devices with sources `0x01000511`, so pairing was not the problem.
+
+The DualSense half has a known shape: Android 11 ships no key layout for it, so `dumpsys input` shows
+`KeyLayoutFile: /system/usr/keylayout/Generic.kl`, and `getevent -lp` shows the generic HID order
+(`BTN_GAMEPAD`, `BTN_EAST`, `BTN_C`, `BTN_NORTH`, ...). Cross is `BTN_EAST`, which `Generic.kl` maps to
+`BUTTON_B`, and an unhandled `BUTTON_B` falls back to Back. Moonlight has a scan-code remap for this layout
+(`isNonStandardDualShock4` in its `ControllerHandler`), but it did not take effect while the helper filtered keys,
+consistent with what `GamepadPassthrough` (#1118) describes: re-injected keys no longer read as the
+controller's own, so Moonlight could neither remap them nor tell the two controllers apart.
+
+`gamepad_passthrough` fixed both: Cross acts as A and the second controller joins as player 2. Set it in
+`config.xml` and rebuild, or `"gamepad_passthrough": true` in a theme's `config.json`. The trade is the
+one in [the key-repeat section above](#a-key-helper-is-bound-and-a-held-remote-button-stopped-repeating): the
+remote buttons the helper answers (gear, app buttons) do nothing while a controller is connected, and come back
+when it disconnects. To check what a controller reports:
+
+```sh
+tools/tv.py 'dumpsys input' | grep -E 'Controller|KeyLayoutFile|Sources'
+tools/tv.py 'getevent -lp'
+```
+
+## One app refuses to play while the rest of the TV is online
+
+An ad-blocking Private DNS is a common addition and the resolver answering is not proof that playback
+is unaffected. A player also calls measurement and analytics domains, and a block there comes back as
+the app's own error while the TV stays online. On a Master-G MGA3200 (`ATV R1`, `R1`, SCBC, Realtek,
+Android TV 9, `PTT1.201001.001`) with `dns.adguard-dns.com` in hostname mode, Max (`com.wbd.stream`)
+logged `ERR_CONNECTION_REFUSED` for its Braze and Conviva endpoints and stalled, while every other app
+played and Android's own connectivity check passed (#1060). Blocking `pixel.spotify.com` takes Spotify
+off the Freebox Player POP (`examples/freebox-player-pop`) the same way. So when one app fails and the
+rest play, set the mode back before debugging the app, then try the same title once more - on the
+MGA3200 that cleared the errors:
+
+```sh
+tools/tv.py 'settings put global private_dns_mode opportunistic'
+```
+
+The other failure mode reads differently: when the TV itself says "No internet", the resolver is down
+or unreachable, and the same command restores it. What the optional resolver does, and what it costs,
+is in the README's "Can it block ads inside apps too?".
+
+When you report how an app does on your TV, say how far it got, because each step can fail on its
+own: installed, opened, usable with the physical remote, signed in, and played a title with sound.
+Reaching the login screen is not playback. Quote the app's full error code (Netflix's `UI-800-3`,
+for example) rather than "doesn't work", since that is what the app's own help pages look up (#1008).
+
+## Xiaomi CN firmware: Settings freezes or crashes after the debloat
+
+On China-market Xiaomi firmware the settings app is Xiaomi's own (`com.xiaomi.mitv.settings`), and it
+reads the TV's hardware configuration from the `TvService` system service that `mitv.service` registers.
+Disable that package and Settings breaks while everything else on the TV keeps working: opening it
+freezes for 20-30 s and drops back to Home (an ANR, not a reboot), and pressing Down twice from the
+first page, Network -> Display -> Sound, crashes it outright. Seen on a MiTV-ASTP0 (`mulan`, Android 9,
+SDK 28, Amlogic/droidlogic, 1.5 GB RAM; the version string says HyperOS 2, the base is still Android 9)
+in [issue #1310](https://github.com/Gathin23/cleanyourtv/issues/1310), whose report could not quote
+`ro.build.display.id`: that firmware closes network ADB on every reboot.
+
+The crash log names the cause:
+
+```sh
+tools/tv.py "logcat -b events -d | grep am_crash"
+# java.lang.NumberFormatException, For input string: "NULL"   <- SoundView.init, Integer.valueOf
+```
+
+`SoundView.init` parses a value it got from `mitv.common.ConfigurationManager` with no guard, and with
+the service gone that manager retries ten times half a second apart, gives up and hands back the literal
+string `NULL`:
+
+```
+ConfigurationManager: getService() 0..9, service = null
+ConfigurationManagerDefaultImpl: service null return
+```
+
+So it is neither the Settings app nor the debloat in general. `mitv.service` is `/system/app/TvService`,
+a PERSISTENT app whose `TvApplication.onCreate` starts `TvServer`, the thing that registers the service:
+
+```sh
+tools/tv.py "service list | grep -i tvservice"   # TvService: [mitv.internal.ITvService]
+```
+
+Keep the package. Every settings page that reads a hardware value then stalls about 5 s, and the one
+page that parses the answer crashes. The China-market lists here already say not to touch it; this is
+why.
+
+**Re-enabling the package on its own does not bring Settings back.** The service is registered at boot
+and the disabled package's PERSISTENT process starts anyway, so nothing looks different after
+`pm enable` and it is easy to conclude the debloat was innocent - the reporter lost a day to exactly
+that. Start the service by hand instead:
+
+```sh
+tools/tv.py "pm enable mitv.service"
+tools/tv.py "am startservice -n mitv.service/.TvServer"
+tools/tv.py "service list | grep -i tvservice"      # expect: TvService: [mitv.internal.ITvService]
+```
+
+A restart registers it too, and on that firmware the restart also turns network ADB off while the switch
+that turns it back on sits inside the Settings app that is broken: have ADB open before the reboot, or
+count on reaching Settings by hand. `examples/xiaomi-mitv-aesp0` is the one list here that disables the
+package (its second set, in daily use since 21 Oct 2026); carrying that line to a set whose settings app
+is Xiaomi's takes Settings with it.
+
+## Settings freezes, then closes, in Accessibility
+
+The highlight passes over Accessibility > Text-to-speech output and Settings stops responding; a few seconds
+later Android closes it ("Input dispatching timed out"). TV Settings previews the focused row, and that row's page
+starts Google's speech engine (`com.google.android.tts`, "Speech Recognition & Synthesis" in the Play Store) to
+name the current voice. On a Hisense 75U75N (`hengshan`, Google TV 12, `STT2.230310.002`, 23 and 24 October 2026)
+the engine took more than ten seconds to start, and leaving the row before it answered left Settings waiting for
+it. The debloat does not touch the engine. The ANR report names the wait:
+
+```sh
+tools/tv.py 'dumpsys dropbox --print system_app_anr' | grep -m2 TextToSpeech
+#   at android.speech.tts.TextToSpeech.shutdown(TextToSpeech.java:914)
+#   at com.android.tv.settings.system.TextToSpeechFragment.onDestroy(TextToSpeechFragment.java:218)
+```
+
+Clearing the engine's data fixed it on that set; the engine downloads its voice again the first time it is used:
+
+```sh
+tools/tv.py 'pm clear com.google.android.tts'
+```
+
+The Play Store had no newer engine there. Without the reset, wait on the row until the voice shows before moving on.
+## The router's domain rules stop applying to the TV after Private DNS
+
+Private DNS in hostname mode sends every lookup over DNS-over-TLS straight to the resolver, past the
+router's own DNS. A router that filters or routes traffic by domain through its resolver - podkop and its
+forks on OpenWrt, mihomo/Clash in fake-IP mode, a VPN subscription with domain lists, Pi-hole or AdGuard
+Home - then never sees the TV's lookups, and its rules stop applying to the TV without any error. On a TCL
+Smart TV Pro (G05, Android 11, `AR2101`/`AR28`) behind such a router, with `dns.adguard-dns.com` in
+hostname mode, the TV got real addresses instead of the router's fake-IP range (198.18.0.0/15), so traffic
+the router would have sent through its tunnel went out directly: services that only work through that
+route broke or slowed down, and the resolver itself answered `127.0.0.1` for `api.themoviedb.org` (#1385).
+
+To tell, compare the address the TV gets with the router's answer for the same host:
+
+```sh
+tools/tv.py 'ping -c1 -W1 <host>'     # the first line shows the address the TV resolved
+nslookup <host> <router ip>           # on the computer: what the router answers
+```
+
+A fake-IP or other router-made answer next to a real address on the TV means Private DNS is going around
+the router. Then either set the mode back, so the TV asks the router again, and block ads on the router
+instead (most of these setups can):
+
+```sh
+tools/tv.py 'settings put global private_dns_mode opportunistic'
+```
+
+or keep Private DNS and accept that the router's domain rules no longer cover the TV. Write down which one
+you chose, so the next "this one service is slow on the TV" does not start from scratch.
