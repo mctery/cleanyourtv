@@ -15,6 +15,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class XmbMenusTest {
+    private static final XmbCatalog.Known KNOWN = ShippedConfig.known();
+
     private static String keys(List<XmbMenus.Menu> menus) {
         StringBuilder sb = new StringBuilder();
         for (XmbMenus.Menu m : menus) sb.append(sb.length() > 0 ? "," : "").append(m.key);
@@ -65,21 +67,21 @@ public class XmbMenusTest {
     @Test public void presetsCollectTheirApps() {
         List<String> mine = Arrays.asList("games", "tools", "social");
         List<String> none = Collections.emptyList();
-        assertEquals("games", XmbCatalog.categoryFor("com.yodo1.crossyroad", ApplicationInfo.CATEGORY_GAME, false, none, mine));
-        assertEquals("games", XmbCatalog.categoryFor("com.frogmind.badland", -1, true, none, mine));
-        assertEquals("tools", XmbCatalog.categoryFor("com.anydesk.anydeskandroid", -1, false, none, mine));
-        assertEquals("tools", XmbCatalog.categoryFor("com.android.vending", -1, false, none, mine));
-        assertEquals("social", XmbCatalog.categoryFor("com.tiktok.tv", -1, false, none, mine));
+        assertEquals("games", XmbCatalog.categoryFor("com.yodo1.crossyroad", ApplicationInfo.CATEGORY_GAME, false, none, mine, KNOWN));
+        assertEquals("games", XmbCatalog.categoryFor("com.frogmind.badland", -1, true, none, mine, KNOWN));
+        assertEquals("tools", XmbCatalog.categoryFor("com.anydesk.anydeskandroid", -1, false, none, mine, KNOWN));
+        assertEquals("tools", XmbCatalog.categoryFor("com.android.vending", -1, false, none, mine, KNOWN));
+        assertEquals("social", XmbCatalog.categoryFor("com.tiktok.tv", -1, false, none, mine, KNOWN));
         // Known video apps stay in Video, and without the menu a game is an app as before.
-        assertEquals(XmbCatalog.VIDEO, XmbCatalog.categoryFor("com.netflix.ninja", -1, false, none, mine));
-        assertEquals(XmbCatalog.APPS, XmbCatalog.categoryFor("com.frogmind.badland", -1, true, none, none));
+        assertEquals(XmbCatalog.VIDEO, XmbCatalog.categoryFor("com.netflix.ninja", -1, false, none, mine, KNOWN));
+        assertEquals(XmbCatalog.APPS, XmbCatalog.categoryFor("com.frogmind.badland", -1, true, none, none, KNOWN));
     }
 
     @Test public void theOwnersMoveWinsButOnlyToAMenuThatExists() {
         List<String> mine = Collections.singletonList("tools");
         assertEquals("tools", XmbCatalog.categoryFor("com.netflix.ninja", -1, false,
-                Collections.singletonList("com.netflix.ninja=tools"), mine));
+                Collections.singletonList("com.netflix.ninja=tools"), mine, KNOWN));
         assertEquals(XmbCatalog.VIDEO, XmbCatalog.categoryFor("com.netflix.ninja", -1, false,
-                Collections.singletonList("com.netflix.ninja=games"), mine));
+                Collections.singletonList("com.netflix.ninja=games"), mine, KNOWN));
     }
 }

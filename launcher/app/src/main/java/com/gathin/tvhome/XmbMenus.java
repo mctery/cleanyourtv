@@ -77,25 +77,21 @@ final class XmbMenus {
         ICONS.put("tv", R.drawable.ic_xmb_tv);
     }
 
-    /** A menu that collects apps by itself: by the app's own category, and by package name (a prefix ending in '.'). */
+    /**
+     * A menu that collects apps by itself: by the app's own category here, and by package name from config.xml or a
+     * theme (xmb_menu_apps, see XmbCatalog.Known).
+     */
     static final class Preset {
         final String key;
         final int label;
         final String icon;
         final int[] appCategories;
-        final String[] packages;
 
-        Preset(String key, int label, String icon, int[] appCategories, String... packages) {
+        Preset(String key, int label, String icon, int... appCategories) {
             this.key = key;
             this.label = label;
             this.icon = icon;
             this.appCategories = appCategories;
-            this.packages = packages;
-        }
-
-        boolean takesPackage(String pkg) {
-            for (String p : packages) if (p.endsWith(".") ? pkg.startsWith(p) : pkg.equals(p)) return true;
-            return false;
         }
 
         boolean takesCategory(int appCategory, boolean game) {
@@ -105,26 +101,15 @@ final class XmbMenus {
     }
 
     static final List<Preset> PRESETS = Collections.unmodifiableList(Arrays.asList(
-            new Preset("games", R.string.xmb_menu_games, "sports_esports", new int[]{ApplicationInfo.CATEGORY_GAME}),
-            new Preset("tools", R.string.xmb_menu_tools, "handyman", new int[]{ApplicationInfo.CATEGORY_PRODUCTIVITY},
-                    "com.android.vending", "com.internet.tvbrowser", "com.phlox.tvwebbrowser", "org.mozilla.tv.",
-                    "com.opera.", "com.anydesk.", "com.teamviewer.", "com.estrongs.", "com.alphainventor.",
-                    "org.zwanoo.android.speedtest", "com.ookla.", "com.android.chrome", "com.cxinventor.file.explorer"),
-            new Preset("social", R.string.xmb_menu_social, "forum", new int[]{ApplicationInfo.CATEGORY_SOCIAL},
-                    "com.facebook.", "com.instagram.", "com.zhiliaoapp.musically", "com.tiktok.tv", "jp.naver.line.",
-                    "com.twitter.", "com.discord", "com.reddit.", "com.twitch.", "tv.twitch."),
-            new Preset("sports", R.string.xmb_menu_sports, "sports_soccer", new int[0], "com.espn.", "com.dazn",
-                    "com.fifa.", "com.nba.", "com.nfl."),
-            new Preset("news", R.string.xmb_menu_news, "newspaper", new int[]{ApplicationInfo.CATEGORY_NEWS},
-                    "com.google.android.apps.magazines", "com.cnn.", "com.bbc.", "com.thairath.", "com.nationtv."),
-            new Preset("kids", R.string.xmb_menu_kids, "toys", new int[0], "com.google.android.youtube.tvkids",
-                    "com.pbs.", "com.nickelodeon.", "com.disney.disneyjunior"),
-            new Preset("learn", R.string.xmb_menu_learn, "school", new int[0], "com.duolingo", "org.khanacademy.",
-                    "com.ted."),
-            new Preset("shopping", R.string.xmb_menu_shopping, "shopping_bag", new int[0], "com.lazada.",
-                    "com.shopee."),
-            new Preset("photos", R.string.xmb_menu_photos, "photo_library", new int[]{ApplicationInfo.CATEGORY_IMAGE},
-                    "com.google.android.apps.photos", "com.mitv.gallery", "com.amazon.clouddrive.photos")));
+            new Preset("games", R.string.xmb_menu_games, "sports_esports", ApplicationInfo.CATEGORY_GAME),
+            new Preset("tools", R.string.xmb_menu_tools, "handyman", ApplicationInfo.CATEGORY_PRODUCTIVITY),
+            new Preset("social", R.string.xmb_menu_social, "forum", ApplicationInfo.CATEGORY_SOCIAL),
+            new Preset("sports", R.string.xmb_menu_sports, "sports_soccer"),
+            new Preset("news", R.string.xmb_menu_news, "newspaper", ApplicationInfo.CATEGORY_NEWS),
+            new Preset("kids", R.string.xmb_menu_kids, "toys"),
+            new Preset("learn", R.string.xmb_menu_learn, "school"),
+            new Preset("shopping", R.string.xmb_menu_shopping, "shopping_bag"),
+            new Preset("photos", R.string.xmb_menu_photos, "photo_library", ApplicationInfo.CATEGORY_IMAGE)));
 
     static Preset preset(String key) {
         for (Preset p : PRESETS) if (p.key.equals(key)) return p;

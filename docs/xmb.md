@@ -35,7 +35,8 @@ battery icons, and
 | Back, Left | Closes the options (from Move, back to the options) |
 | Home | From an app: back to where you were. On the XMB: Video, first item |
 
-After 45 seconds without a key the menu fades out and only the wave stays. Any key brings it back.
+After 45 seconds without a key the menu fades out and only the wave stays (`xmb_idle_seconds` in config.xml or a
+theme; `0` keeps it up). Any key brings it back.
 
 ## Status row
 
@@ -120,8 +121,10 @@ on, and it loops without a gap.
 
 ## What goes where
 
-TV apps go in Video, Music or Apps: known streaming and music apps by package name, then the app's own
-`android:appCategory`, else Apps. Move an app with **Hold OK > Move to another category**, or list it in
+TV apps go in Video, Music or Apps: known streaming and music apps by package name (`xmb_video_apps` and
+`xmb_music_apps` in `config.xml`, which a theme can replace), then the app's own `android:appCategory`, else Apps.
+The ready-made menus of your own (Games, Tools, Social...) collect apps by name the same way (`xmb_menu_apps`,
+`"tools:com.android.vending"`) and by their own category. Move an app with **Hold OK > Move to another category**, or list it in
 `xmb_categories` in `config.xml` or a theme's `config.json`: `"xmb_categories": ["com.example.tv=video"]`
 (`video`, `music` or `apps`; a move made on the TV wins). Inside a category the order is the tile grid's:
 `dock_apps`, then by name (an order saved earlier with the grid's Reorder counts until `dock_apps` changes).
@@ -129,7 +132,7 @@ TV apps go in Video, Music or Apps: known streaming and music apps by package na
 `app_labels`, `app_banners` and `launch_actions` apply as on the grid.
 
 Settings holds TV settings, Display and sound, Apps and the menu-sound switch. Network shows the connection with
-its address and the Private DNS in use.
+its address, the speed test and the Private DNS in use.
 
 ## Sounds
 

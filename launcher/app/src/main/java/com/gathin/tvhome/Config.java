@@ -169,14 +169,8 @@ final class Config {
     final boolean handleViewInputs;
     /** Hold OK on a tile opens a menu (Move, Remove from Home, App info) instead of App info (config.xml / theme tile_menu). */
     final boolean tileMenu;
-    /** XMB home: "package=category" (video, music, apps or a menu's key) for apps it would otherwise put elsewhere (xmb_categories). */
-    final List<String> xmbCategories;
-    /** XMB home: the owner's own categories, "key:label:icon" (xmb_menus). */
-    final List<String> xmbMenus;
-    /** XMB home: the wave colour, "month", "month1".."month12" or "#RRGGBB" (xmb_color). */
-    final String xmbColor;
-    /** XMB home: the status row, "key=mode" in order (xmb_status). */
-    final List<String> xmbStatus;
+    /** The XMB home's own keys (xmb_*), see XmbConfig. */
+    final XmbConfig xmb;
 
     private Config(List<String> dockApps, boolean fillDock, List<String> hiddenApps, String liveTvPackage,
                    String liveTvAction, String liveTvInputId, Map<String, String> launchActions, Map<String, String> appLabels,
@@ -190,8 +184,7 @@ final class Config {
                    Festival festival, int[] inputKeycodes, List<String> appKeys, String stockHomeRedirect,
                    List<RaceWeekend.Race> raceCalendar, boolean cinematicHome, boolean ambientGlow, boolean appGlow, int homeIdleClockMinutes,
                    boolean keyFilter, boolean dockGlass, String glowStyle, boolean wallpaperCaptions,
-                   boolean handleViewInputs, boolean tileMenu, List<String> xmbCategories, List<String> xmbMenus,
-                   String xmbColor, List<String> xmbStatus) {
+                   boolean handleViewInputs, boolean tileMenu, XmbConfig xmb) {
         this.handleViewInputs = handleViewInputs;
         this.tileMenu = tileMenu;
         this.inputKeycodes = inputKeycodes;
@@ -258,10 +251,7 @@ final class Config {
         this.ambientGlow = ambientGlow;
         this.appGlow = appGlow;
         this.homeIdleClockMinutes = homeIdleClockMinutes;
-        this.xmbCategories = Collections.unmodifiableList(xmbCategories);
-        this.xmbMenus = Collections.unmodifiableList(xmbMenus);
-        this.xmbColor = xmbColor;
-        this.xmbStatus = Collections.unmodifiableList(xmbStatus);
+        this.xmb = xmb;
         this.dockGlass = dockGlass;
         this.glowStyle = glowStyle(glowStyle);
         this.wallpaperCaptions = wallpaperCaptions;
@@ -343,10 +333,6 @@ final class Config {
         boolean keyFilter = res.getBoolean(R.bool.key_filter);
         boolean dockGlass = res.getBoolean(R.bool.dock_glass);
         String glowStyle = res.getString(R.string.glow_style);
-        List<String> xmbCategories = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_categories)));
-        List<String> xmbMenus = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_menus)));
-        String xmbColor = res.getString(R.string.xmb_color);
-        List<String> xmbStatus = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.xmb_status)));
         boolean applied = false;
 
         File dir = dir(ctx);
@@ -414,10 +400,6 @@ final class Config {
             keyFilter = bool(json, "key_filter", keyFilter);
             dockGlass = bool(json, "dock_glass", dockGlass);
             glowStyle = string(json, "glow_style", glowStyle);
-            xmbCategories = stringList(json, "xmb_categories", xmbCategories);
-            xmbMenus = stringList(json, "xmb_menus", xmbMenus);
-            xmbColor = string(json, "xmb_color", xmbColor);
-            xmbStatus = stringList(json, "xmb_status", xmbStatus);
         }
         // A theme push or reset invalidates choices made on the TV. On first use, remember the
         // current theme without clearing choices from an older launcher version.
@@ -479,8 +461,8 @@ final class Config {
                 Math.max(0, Math.min(100, skyIntensity)), settingsKeycodes, settingsKeyPanel, restoreKeyServices, wallpaperEnabled, wallpaper,
                 wallpapers, rotationMinutes, wallpaperDim, dockOpacity, wallpaperOrder, applied,
                 festival, inputKeycodes, appKeys, stockHomeRedirect, json == null ? Collections.emptyList() : raceCalendar(json), cinematic, ambientGlow, appGlow,
-                Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu, xmbCategories,
-                xmbMenus, xmbColor, xmbStatus);
+                Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu,
+                XmbConfig.load(res, json));
     }
 
     /**
@@ -594,7 +576,7 @@ final class Config {
         }
     }
 
-    private static String string(JSONObject o, String key, String fallback) {
+    static String string(JSONObject o, String key, String fallback) {
         Object v = o.opt(key);
         return v instanceof String ? ((String) v).trim() : fallback;
     }
@@ -604,7 +586,7 @@ final class Config {
         return v instanceof Boolean ? (Boolean) v : fallback;
     }
 
-    private static int integer(JSONObject o, String key, int fallback, int min, int max) {
+    static int integer(JSONObject o, String key, int fallback, int min, int max) {
         Object v = o.opt(key);
         if (!(v instanceof Number)) return fallback;
         int i = ((Number) v).intValue();
@@ -649,7 +631,7 @@ final class Config {
         return out;
     }
 
-    private static List<String> stringList(JSONObject o, String key, List<String> fallback) {
+    static List<String> stringList(JSONObject o, String key, List<String> fallback) {
         Object v = o.opt(key);
         if (!(v instanceof JSONArray)) return fallback;
         JSONArray a = (JSONArray) v;

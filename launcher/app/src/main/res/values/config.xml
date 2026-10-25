@@ -329,4 +329,95 @@
          (Settings > Status bar) wins. Leave empty for the standard row. -->
     <string-array name="xmb_status" translatable="false">
     </string-array>
+    <!-- XMB home: seconds without a key before the menu fades out to the wave (any key brings it back); 0 keeps it
+         up. Can also be set with "xmb_idle_seconds" in a theme's config.json. -->
+    <integer name="xmb_idle_seconds">45</integer>
+    <!-- XMB home: the status row's warnings, in amber: the remote's battery under this many percent, and free
+         storage under this many megabytes. Theme keys xmb_low_battery and xmb_low_storage_mb. -->
+    <integer name="xmb_low_battery">20</integer>
+    <integer name="xmb_low_storage_mb">500</integer>
+    <!-- XMB home: apps that go in Video or Music although they do not say so themselves (android:appCategory), by
+         package name; one ending in "." takes every package that starts with it. A theme's list (xmb_video_apps,
+         xmb_music_apps) replaces the one here; xmb_categories still wins for one app. -->
+    <string-array name="xmb_video_apps" translatable="false">
+        <item>com.netflix.ninja</item>
+        <item>com.google.android.youtube.tv</item>
+        <item>com.google.android.youtube.tvkids</item>
+        <item>com.amazon.amazonvideo.livingroom</item>
+        <item>com.amazon.amazonvideo.</item>
+        <item>com.disney.disneyplus</item>
+        <item>com.wbd.stream</item>
+        <item>com.hbo.</item>
+        <item>in.startv.hotstar</item>
+        <item>in.startv.hotstar.</item>
+        <item>com.ais.mimo.aisplay.tv</item>
+        <item>com.beci.thaitv3android</item>
+        <item>com.google.android.videos</item>
+        <item>com.xiaomi.mitv.mediaexplorer</item>
+        <item>com.mitv.videoplayer</item>
+        <item>com.apple.atve.androidtv.appletv</item>
+        <item>com.plexapp.android</item>
+        <item>org.xbmc.kodi</item>
+        <item>com.mxtech.videoplayer.ad</item>
+        <item>com.android.tv</item>
+    </string-array>
+    <string-array name="xmb_music_apps" translatable="false">
+        <item>com.google.android.youtube.tvmusic</item>
+        <item>com.spotify.tv.android</item>
+        <item>com.xiaomi.mimusic2</item>
+        <item>com.apple.android.music</item>
+        <item>com.tencent.ibg.joox</item>
+        <item>deezer.android.tv</item>
+        <item>com.aspiro.tidal</item>
+    </string-array>
+    <!-- XMB home: the apps the ready-made menus (games, tools, social, sports, news, kids, learn, shopping, photos)
+         collect by package name, as "menu:package", besides the apps whose own category fits; only for menus that
+         are on the cross-bar. A theme's xmb_menu_apps replaces this list. -->
+    <string-array name="xmb_menu_apps" translatable="false">
+        <item>tools:com.android.vending</item>
+        <item>tools:com.internet.tvbrowser</item>
+        <item>tools:com.phlox.tvwebbrowser</item>
+        <item>tools:org.mozilla.tv.</item>
+        <item>tools:com.opera.</item>
+        <item>tools:com.anydesk.</item>
+        <item>tools:com.teamviewer.</item>
+        <item>tools:com.estrongs.</item>
+        <item>tools:com.alphainventor.</item>
+        <item>tools:org.zwanoo.android.speedtest</item>
+        <item>tools:com.ookla.</item>
+        <item>tools:com.android.chrome</item>
+        <item>tools:com.cxinventor.file.explorer</item>
+        <item>social:com.facebook.</item>
+        <item>social:com.instagram.</item>
+        <item>social:com.zhiliaoapp.musically</item>
+        <item>social:com.tiktok.tv</item>
+        <item>social:jp.naver.line.</item>
+        <item>social:com.twitter.</item>
+        <item>social:com.discord</item>
+        <item>social:com.reddit.</item>
+        <item>social:com.twitch.</item>
+        <item>social:tv.twitch.</item>
+        <item>sports:com.espn.</item>
+        <item>sports:com.dazn</item>
+        <item>sports:com.fifa.</item>
+        <item>sports:com.nba.</item>
+        <item>sports:com.nfl.</item>
+        <item>news:com.google.android.apps.magazines</item>
+        <item>news:com.cnn.</item>
+        <item>news:com.bbc.</item>
+        <item>news:com.thairath.</item>
+        <item>news:com.nationtv.</item>
+        <item>kids:com.google.android.youtube.tvkids</item>
+        <item>kids:com.pbs.</item>
+        <item>kids:com.nickelodeon.</item>
+        <item>kids:com.disney.disneyjunior</item>
+        <item>learn:com.duolingo</item>
+        <item>learn:org.khanacademy.</item>
+        <item>learn:com.ted.</item>
+        <item>shopping:com.lazada.</item>
+        <item>shopping:com.shopee.</item>
+        <item>photos:com.google.android.apps.photos</item>
+        <item>photos:com.mitv.gallery</item>
+        <item>photos:com.amazon.clouddrive.photos</item>
+    </string-array>
 </resources>

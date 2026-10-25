@@ -53,12 +53,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import static com.gathin.tvhome.XmbStyle.*;
+
 /**
  * Home as a PlayStation-style cross-bar (XMB): categories across, the selected category's items down, the selected
  * item always right under the category icon (the PS3 layout; items already passed stack above the bar), over the
  * PS3 wave in the month's colour ({@link XmbWave}). Design and timings follow KittiwanaNotify's admin (xmb.js,
  * admin.css): anchor at 24% of the width, category row at about 30% of the height, 240 ms with the same easing,
- * the menu fading out after 45 s idle while the wave keeps flowing.
+ * the menu fading out after 45 s idle (xmb_idle_seconds) while the wave keeps flowing. Timings, light and panel
+ * colours are in {@link XmbStyle}; what the owner may set, in {@link XmbConfig}.
  *
  * Keys: left/right change category, up/down move in it, OK opens, hold OK (or Menu) for options, Home when Home is
  * already in front goes back to Video. On this branch it is the launcher's only Home (the XmbHome alias; the tile
@@ -84,8 +87,6 @@ public class XmbActivity extends Activity {
     private static final float ROW_H = 176;
     private static final float THUMB_W = 240, THUMB_H = 134, GLYPH = 120, RADIUS = 20;
     private static final float META_X = AX + 152, META_W = 1920 - META_X - 120;
-    private static final long IDLE_MS = 45_000;
-    private static final int INK = 0xF0FFFFFF, INK_DIM = 0xADFFFFFF, INK_FAINT = 0x85FFFFFF;
 
     private float s;
     private Config cfg;
@@ -101,7 +102,7 @@ public class XmbActivity extends Activity {
     private XmbWave wave;
     private GLSurfaceView waveView;
     private boolean reducedMotion;
-    private long animMs = 240;
+    private long animMs = MOVE_MS;
     private final PathInterpolator ease = new PathInterpolator(0.16f, 1f, 0.3f, 1f);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Typeface light, regular, medium, extraLight;
@@ -169,7 +170,8 @@ public class XmbActivity extends Activity {
         extraLight = getResources().getFont(R.font.outfit_extralight);
         status = new XmbStatus(this, this::px, extraLight, new Handler(Looper.getMainLooper()));
         status.setMotion(!reducedMotion);
-        statusPrefs = XmbStatusPrefs.load(this, cfg.xmbStatus);
+        status.setLimits(cfg.xmb.lowBattery, cfg.xmb.lowStorageMb);
+        statusPrefs = XmbStatusPrefs.load(this, cfg.xmb.status);
         status.setPrefs(statusPrefs);
         XmbRecorder.listener = (running, message) -> {
             XmbDebug.log(running ? "recording started" : "recording ended");
@@ -206,8 +208,8 @@ public class XmbActivity extends Activity {
         debugPanel = new TextView(this);
         debugPanel.setTypeface(Typeface.MONOSPACE);
         debugPanel.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(17));
-        debugPanel.setTextColor(0xE6FFFFFF);
-        debugPanel.setBackgroundColor(0xB3000000);
+        debugPanel.setTextColor(PANEL_INK);
+        debugPanel.setBackgroundColor(PANEL_BG);
         debugPanel.setPadding(px(16), px(10), px(16), px(10));
         debugPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams dlp = new FrameLayout.LayoutParams(px(860), -2, Gravity.BOTTOM | Gravity.START);
@@ -264,7 +266,7 @@ public class XmbActivity extends Activity {
             dirty = true;
             // Play Store updates come in bursts: one reload after they settle, not one per broadcast.
             handler.removeCallbacks(reloadLater);
-            if (resumed) handler.postDelayed(reloadLater, 1500);
+            if (resumed) handler.postDelayed(reloadLater, RELOAD_SETTLE_MS);
         }
     };
 
@@ -490,7 +492,7 @@ public class XmbActivity extends Activity {
      */
     private String colorMode() {
         SharedPreferences p = prefs();
-        String theme = cfg.xmbColor == null ? XmbAccent.MONTH : cfg.xmbColor;
+        String theme = cfg.xmb.color == null ? XmbAccent.MONTH : cfg.xmb.color;
         if (!theme.equals(p.getString(PREF_COLOR_THEME, null))) {
             p.edit().putString(PREF_COLOR_THEME, theme).remove(PREF_COLOR).apply();
         }
@@ -645,7 +647,7 @@ public class XmbActivity extends Activity {
 
         toast = text(regular, 24, INK);
         GradientDrawable pill = new GradientDrawable();
-        pill.setColor(0xC7080B14);
+        pill.setColor(TOAST_BG);
         pill.setCornerRadius(px(40));
         toast.setBackground(pill);
         toast.setPadding(px(28), px(14), px(28), px(14));
@@ -661,9 +663,9 @@ public class XmbActivity extends Activity {
         public void run() {
             // A step, not a fade: a fade redraws the whole screen 60 times a second for one character.
             colonDim = !colonDim;
-            clockColon.setAlpha(colonDim ? 0.25f : 1f);
+            clockColon.setAlpha(colonDim ? COLON_DIM : 1f);
             // Faded out to the wave (and the clock not kept on screen): nothing to blink for.
-            if (resumed && !(idle && !statusPrefs.keepOnIdle)) handler.postDelayed(this, 500);
+            if (resumed && !(idle && !statusPrefs.keepOnIdle)) handler.postDelayed(this, BLINK_MS);
         }
     };
 
@@ -690,7 +692,7 @@ public class XmbActivity extends Activity {
     private void reload() {
         dirty = false;
         if (cat >= 0 && cat < cats.size()) selectedCat = cats.get(cat).key;
-        menus = XmbMenus.load(this, cfg.xmbMenus);
+        menus = XmbMenus.load(this, cfg.xmb.menus);
         XmbCatalog.SettingsState state = new XmbCatalog.SettingsState();
         state.soundsAvailable = sounds.available();
         state.soundsOn = sounds.isOn();
@@ -762,7 +764,7 @@ public class XmbActivity extends Activity {
             int pad = px(13 * CAT_ZOOM);
             v.icon.setPadding(pad, pad, pad, pad);
             v.icon.setImageTintList(tint(INK_FAINT));
-            v.icon.setAlpha(0.38f);
+            v.icon.setAlpha(CAT_DIM);
             v.label = place(v.root, text(medium, 25, INK), -50, CAT_LABEL_Y, SLOT + 100, -1);
             v.label.setGravity(Gravity.CENTER_HORIZONTAL);
             v.label.setText(c.label);
@@ -813,7 +815,7 @@ public class XmbActivity extends Activity {
             CatView v = catViews.get(i);
             boolean sel = i == index;
             v.icon.setImageTintList(tint(sel ? Color.WHITE : INK_FAINT));
-            animate(v.icon, sel ? 1f : 0.38f, sel ? 1f : 1f / CAT_ZOOM, instant);
+            animate(v.icon, sel ? 1f : CAT_DIM, sel ? 1f : 1f / CAT_ZOOM, instant);
             animate(v.glow, sel ? 1f : 0f, sel ? 1f : 1f / CAT_ZOOM, instant);
             animate(v.label, sel ? 1f : 0f, 1f, instant);
         }
@@ -850,10 +852,10 @@ public class XmbActivity extends Activity {
             // setStartDelay(0): a view's animator keeps the last start delay, and the intro gives the column one of
             // 650 ms; the first category switch after it then left the old column up beside the new one (the icons
             // seen doubled after boot).
-            old.animate().alpha(0f).setStartDelay(0).setDuration(120).withEndAction(() -> ui.removeView(old)).start();
+            old.animate().alpha(0f).setStartDelay(0).setDuration(COLUMN_OUT_MS).withEndAction(() -> ui.removeView(old)).start();
             column.setAlpha(0f);
-            column.setTranslationX(px(-16));
-            column.animate().alpha(1f).translationX(0).setDuration(200).setInterpolator(ease).start();
+            column.setTranslationX(px(COLUMN_FROM));
+            column.animate().alpha(1f).translationX(0).setDuration(COLUMN_IN_MS).setInterpolator(ease).start();
         } else {
             ui.removeView(old);
         }
@@ -903,7 +905,7 @@ public class XmbActivity extends Activity {
                 thumb.setImageDrawable(item.banner);
             } else {
                 // An app with only an icon: the icon on a quiet tile.
-                thumb.setBackgroundColor(0x33FFFFFF);
+                thumb.setBackgroundColor(ICON_TILE);
                 thumb.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
                 int pad = px(24);
                 thumb.setPadding(pad, pad, pad, pad);
@@ -912,7 +914,7 @@ public class XmbActivity extends Activity {
             r.ring = place(r.thumbBox, new View(this), -2, -2, w + 4, h + 4);
             GradientDrawable ring = new GradientDrawable();
             ring.setCornerRadius(px(RADIUS + 2));
-            ring.setStroke(Math.max(2, px(2.5f)), 0xD9FFFFFF);
+            ring.setStroke(Math.max(2, px(2.5f)), TILE_RING);
             r.ring.setBackground(ring);
             r.ring.setAlpha(0f);
         } else {
@@ -977,7 +979,7 @@ public class XmbActivity extends Activity {
         for (int j = 0; j < rows.size(); j++) {
             Row r = rows.get(j);
             boolean isSel = j == sel;
-            float alpha = isSel ? 1f : j < sel ? (centre[j] < GONE_Y ? 0f : 0.4f) : 0.58f;
+            float alpha = isSel ? 1f : j < sel ? (centre[j] < GONE_Y ? 0f : ROW_ABOVE) : ROW_BELOW;
             float ty = px(centre[j] - ROW_H / 2);
             if (instant || animMs == 0) {
                 r.root.animate().cancel();
@@ -986,7 +988,7 @@ public class XmbActivity extends Activity {
             } else {
                 r.root.animate().translationY(ty).alpha(alpha).setDuration(animMs).setInterpolator(ease).start();
             }
-            animate(r.thumbBox, 1f, isSel ? 1f : 0.68f, instant);
+            animate(r.thumbBox, 1f, isSel ? 1f : ROW_THUMB, instant);
             animate(r.glow, isSel ? 1f : 0f, 1f, instant);
             if (r.ring != null) animate(r.ring, isSel ? 1f : 0f, 1f, instant);
             if (!r.tile) {
@@ -995,7 +997,7 @@ public class XmbActivity extends Activity {
             }
             r.title.setTypeface(isSel ? medium : regular);
             r.title.setTextColor(isSel ? INK : INK_FAINT);
-            animate(r.title, 1f, isSel ? 1f : 0.82f, instant);
+            animate(r.title, 1f, isSel ? 1f : ROW_TITLE, instant);
             boolean showDetail = isSel && !TextUtils.isEmpty(r.item.detail);
             r.detail.setVisibility(showDetail ? View.VISIBLE : View.GONE);
             if (showDetail) {
@@ -1198,12 +1200,13 @@ public class XmbActivity extends Activity {
         // As on the PS3: the chosen tile steps forward and brightens, the cross-bar fades, then the app opens.
         launching = true;
         // (A view's animator keeps its start delay for the next animation, so every one here sets its own.)
-        r.thumbBox.animate().scaleX(1.1f).scaleY(1.1f).setStartDelay(0).setDuration(180).setInterpolator(ease).start();
-        r.glow.animate().alpha(1f).scaleX(1.15f).scaleY(1.15f).setStartDelay(0).setDuration(180).start();
-        catsRow.animate().alpha(0f).translationY(px(CAT_TOP - 20)).setStartDelay(0).setDuration(220).start();
-        column.animate().alpha(0f).setStartDelay(60).setDuration(200).start();
-        top.animate().alpha(0f).setStartDelay(0).setDuration(200).start();
-        handler.postDelayed(() -> start(item), 200);
+        r.thumbBox.animate().scaleX(LAUNCH_ZOOM).scaleY(LAUNCH_ZOOM).setStartDelay(0).setDuration(LAUNCH_ZOOM_MS)
+                .setInterpolator(ease).start();
+        r.glow.animate().alpha(1f).scaleX(LAUNCH_GLOW).scaleY(LAUNCH_GLOW).setStartDelay(0).setDuration(LAUNCH_ZOOM_MS).start();
+        catsRow.animate().alpha(0f).translationY(px(CAT_TOP - LAUNCH_RISE)).setStartDelay(0).setDuration(LAUNCH_ROW_MS).start();
+        column.animate().alpha(0f).setStartDelay(LAUNCH_COLUMN_DELAY_MS).setDuration(LAUNCH_FADE_MS).start();
+        top.animate().alpha(0f).setStartDelay(0).setDuration(LAUNCH_FADE_MS).start();
+        handler.postDelayed(() -> start(item), LAUNCH_START_MS);
     }
 
     // A plain start: an app opened with ActivityOptions.makeScaleUpAnimation left this Home marked translucent on
@@ -1257,7 +1260,7 @@ public class XmbActivity extends Activity {
     private void queueAnim(Runnable run) {
         pendingAnim = run;
         handler.removeCallbacks(runPendingAnim);
-        handler.postDelayed(runPendingAnim, 900);
+        handler.postDelayed(runPendingAnim, ANIM_WAIT_MS);
     }
 
     @Override
@@ -1274,7 +1277,7 @@ public class XmbActivity extends Activity {
      */
     private void playIntro(boolean boot) {
         if (animMs == 0) return;
-        float k = boot ? 1f : 0.6f;
+        float k = boot ? 1f : INTRO_SHORT;
         veil.animate().cancel();
         veil.setAlpha(1f);
         veil.setVisibility(View.VISIBLE);
@@ -1283,23 +1286,23 @@ public class XmbActivity extends Activity {
             v.animate().cancel();
             v.setAlpha(0f);
             // Each category sits at its slot by its translation (place() uses setX), so move from there.
-            v.setTranslationX(px(i * SLOT) + px(90));
+            v.setTranslationX(px(i * SLOT) + px(INTRO_ROW_FROM));
         }
         column.setAlpha(0f);
-        column.setTranslationY(px(40));
+        column.setTranslationY(px(INTRO_COLUMN_FROM));
         top.setAlpha(0f);
         queueAnim(() -> {
             // Gone once clear: a full-screen view over the wave's surface, even transparent, is still drawn.
-            veil.animate().alpha(0f).setStartDelay(0).setDuration((long) (1600 * k)).setInterpolator(ease)
+            veil.animate().alpha(0f).setStartDelay(0).setDuration((long) (INTRO_VEIL_MS * k)).setInterpolator(ease)
                     .withEndAction(() -> veil.setVisibility(View.GONE)).start();
             for (int i = 0; i < catViews.size(); i++) {
                 catViews.get(i).root.animate().alpha(1f).translationX(px(i * SLOT))
-                        .setStartDelay((long) ((300 + 70 * Math.abs(i - cat)) * k))
-                        .setDuration((long) (520 * k)).setInterpolator(ease).start();
+                        .setStartDelay((long) ((INTRO_ROW_DELAY_MS + INTRO_ROW_STEP_MS * Math.abs(i - cat)) * k))
+                        .setDuration((long) (INTRO_ROW_MS * k)).setInterpolator(ease).start();
             }
-            column.animate().alpha(1f).translationY(0f).setStartDelay((long) (650 * k))
-                    .setDuration((long) (600 * k)).setInterpolator(ease).start();
-            top.animate().alpha(1f).setStartDelay((long) (1000 * k)).setDuration((long) (700 * k)).start();
+            column.animate().alpha(1f).translationY(0f).setStartDelay((long) (INTRO_COLUMN_DELAY_MS * k))
+                    .setDuration((long) (INTRO_COLUMN_MS * k)).setInterpolator(ease).start();
+            top.animate().alpha(1f).setStartDelay((long) (INTRO_TOP_DELAY_MS * k)).setDuration((long) (INTRO_TOP_MS * k)).start();
         });
     }
 
@@ -1309,17 +1312,17 @@ public class XmbActivity extends Activity {
         if (animMs == 0 || idle) return;
         ui.animate().cancel();
         ui.setAlpha(0f);
-        ui.setScaleX(1.04f);
-        ui.setScaleY(1.04f);
+        ui.setScaleX(RETURN_ZOOM);
+        ui.setScaleY(RETURN_ZOOM);
         for (int i = 0; i < catViews.size(); i++) {
-            if (i != cat) catViews.get(i).root.setTranslationX(px(i * SLOT) + px(i < cat ? -40 : 40));
+            if (i != cat) catViews.get(i).root.setTranslationX(px(i * SLOT) + px(i < cat ? -RETURN_SPREAD : RETURN_SPREAD));
         }
         queueAnim(() -> {
-            ui.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(0).setDuration(420).setInterpolator(ease)
+            ui.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(0).setDuration(RETURN_MS).setInterpolator(ease)
                     .start();
             for (int i = 0; i < catViews.size(); i++) {
                 if (i == cat) continue;
-                catViews.get(i).root.animate().translationX(px(i * SLOT)).setStartDelay(0).setDuration(480)
+                catViews.get(i).root.animate().translationX(px(i * SLOT)).setStartDelay(0).setDuration(RETURN_ROW_MS)
                         .setInterpolator(ease).start();
             }
         });
@@ -1357,10 +1360,10 @@ public class XmbActivity extends Activity {
         if (animMs == 0 || event.getRepeatCount() > 0 || cat < 0) return;
         int token = ++nudgeToken;
         float home = catsX(cat);
-        catsRow.animate().translationX(home + px(14 * direction)).setStartDelay(0).setDuration(80)
+        catsRow.animate().translationX(home + px(NUDGE_ROW * direction)).setStartDelay(0).setDuration(NUDGE_OUT_MS)
                 .setInterpolator(ease).withEndAction(() -> {
                     if (token == nudgeToken) {
-                        catsRow.animate().translationX(home).setStartDelay(0).setDuration(180).setInterpolator(ease)
+                        catsRow.animate().translationX(home).setStartDelay(0).setDuration(NUDGE_BACK_MS).setInterpolator(ease)
                                 .start();
                     }
                 }).start();
@@ -1369,8 +1372,8 @@ public class XmbActivity extends Activity {
     private void nudgeColumn(int direction) {
         if (animMs == 0 || keyRepeat > 0) return;
         View col = column;
-        col.animate().translationY(px(10 * direction)).setStartDelay(0).setDuration(80).setInterpolator(ease)
-                .withEndAction(() -> col.animate().translationY(0f).setStartDelay(0).setDuration(180)
+        col.animate().translationY(px(NUDGE_COLUMN * direction)).setStartDelay(0).setDuration(NUDGE_OUT_MS).setInterpolator(ease)
+                .withEndAction(() -> col.animate().translationY(0f).setStartDelay(0).setDuration(NUDGE_BACK_MS)
                         .setInterpolator(ease).start()).start();
     }
 
@@ -1384,12 +1387,12 @@ public class XmbActivity extends Activity {
         idle = true;
         status.setAnimating(false);
         XmbDebug.log("idle: menu fades");
-        long ms = reducedMotion ? 0 : 1200;
+        long ms = reducedMotion ? 0 : IDLE_FADE_MS;
         if (statusPrefs.keepOnIdle) {
             // The clock and the status row stay, a little dimmer, over the wave; the cross-bar goes.
             fade(catsRow, 0f, ms);
             fade(column, 0f, ms);
-            fade(top, 0.75f, ms);
+            fade(top, TOP_ON_WAVE, ms);
         } else {
             ui.animate().alpha(0f).setDuration(ms).setInterpolator(ease).withLayer().start();
         }
@@ -1404,13 +1407,14 @@ public class XmbActivity extends Activity {
                 handler.removeCallbacks(blink);
                 handler.post(blink);
             }
-            long ms = reducedMotion ? 0 : 2400;
+            long ms = reducedMotion ? 0 : WAKE_FADE_MS;
             ui.animate().alpha(1f).setDuration(ms).setInterpolator(ease).withLayer().start();
             fade(catsRow, 1f, ms);
             fade(column, 1f, ms);
             fade(top, 1f, ms);
         }
-        if (resumed) handler.postDelayed(goIdle, IDLE_MS);
+        // xmb_idle_seconds: 0 keeps the menu up.
+        if (resumed && cfg.xmb.idleSeconds > 0) handler.postDelayed(goIdle, cfg.xmb.idleSeconds * 1000L);
     }
 
     // ---- options (hold OK or Menu): a floating list beside the item, the PSP's ----------------------------------
@@ -1494,20 +1498,19 @@ public class XmbActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
-    private final Runnable hideToast = () -> toast.animate().alpha(0f).setDuration(200).start();
+    private final Runnable hideToast = () -> toast.animate().alpha(0f).setDuration(TOAST_FADE_MS).start();
 
     private void showToast(String message) {
         toast.setText(message);
-        toast.animate().alpha(1f).setDuration(200).start();
+        toast.animate().alpha(1f).setDuration(TOAST_FADE_MS).start();
         handler.removeCallbacks(hideToast);
-        handler.postDelayed(hideToast, 2200);
+        handler.postDelayed(hideToast, TOAST_MS);
     }
 
     // ---- the side list: a frameless list right of the column (theme colour, menus) ------------------------------
 
     /** Settings' lists stand at SIDE_X; an item's options closer, at MENU_X, beside its title (the PSP's). */
     private static final float SIDE_X = 1400, MENU_X = 1180, SIDE_STEP = 64, SIDE_ICON = 44;
-    private static final float[] SIDE_ALPHA = {1f, 0.62f, 0.44f, 0.28f, 0.14f};
 
     private interface SideHandler {
         default void moved(int index) {
@@ -1607,9 +1610,9 @@ public class XmbActivity extends Activity {
                 View e = sideViews.get(i);
                 float to = e.getAlpha();
                 e.setAlpha(0f);
-                e.setTranslationX(px(sideX + 36));   // entries sit at sideX through their translation (setX)
-                e.animate().alpha(to).translationX(px(sideX)).setStartDelay(22L * Math.abs(i - sideIdx))
-                        .setDuration(200).setInterpolator(ease).start();
+                e.setTranslationX(px(sideX + SIDE_FROM));   // entries sit at sideX through their translation (setX)
+                e.animate().alpha(to).translationX(px(sideX)).setStartDelay(SIDE_STAGGER_MS * Math.abs(i - sideIdx))
+                        .setDuration(SIDE_IN_MS).setInterpolator(ease).start();
             }
         }
         handler.removeCallbacks(goIdle);
@@ -1632,7 +1635,7 @@ public class XmbActivity extends Activity {
                 e.setY(y);
                 e.setAlpha(alpha);
             } else {
-                e.animate().y(y).alpha(alpha).translationX(px(sideX)).setStartDelay(0).setDuration(160)
+                e.animate().y(y).alpha(alpha).translationX(px(sideX)).setStartDelay(0).setDuration(SIDE_STEP_MS)
                         .setInterpolator(ease).start();
             }
             paintSideEntry((ViewGroup) e, i == sideIdx);
@@ -1648,7 +1651,7 @@ public class XmbActivity extends Activity {
                 t.setTypeface(sel ? medium : regular);
                 t.setTextColor(marked ? (0xFF000000 | XmbAccent.floor(accentUi)) : sel ? Color.WHITE : INK_DIM);
                 t.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(sel ? 33 : 30));
-                t.setShadowLayer(sel ? px(10) : 0, 0, 0, sel ? 0x99FFFFFF : 0);
+                t.setShadowLayer(sel ? px(10) : 0, 0, 0, sel ? TEXT_GLOW : 0);
             } else if (c instanceof ImageView) {
                 ((ImageView) c).setImageTintList(tint(sel ? Color.WHITE : INK_DIM));
                 c.setScaleX(sel ? 1.15f : 1f);
@@ -1662,8 +1665,8 @@ public class XmbActivity extends Activity {
         for (int i = 0; i < catViews.size(); i++) {
             if (i == cat) continue;
             View icon = catViews.get(i).icon;
-            if (instantAnim()) icon.setAlpha(dim ? 0f : 0.38f);
-            else icon.animate().alpha(dim ? 0f : 0.38f).setDuration(160).start();
+            if (instantAnim()) icon.setAlpha(dim ? 0f : CAT_DIM);
+            else icon.animate().alpha(dim ? 0f : CAT_DIM).setDuration(SIDE_STEP_MS).start();
         }
     }
 
@@ -1834,7 +1837,10 @@ public class XmbActivity extends Activity {
         adjBright = hb[1];
         // The list stays, faded, with the custom entry on top of the pickers.
         for (int i = 0; i < sideViews.size(); i++) {
-            if (i != sideIdx) sideViews.get(i).animate().alpha(i < sideIdx ? 0.2f : 0f).setStartDelay(0).setDuration(120).start();
+            if (i != sideIdx) {
+                sideViews.get(i).animate().alpha(i < sideIdx ? SIDE_UNDER_PICKER : 0f).setStartDelay(0)
+                        .setDuration(COLUMN_OUT_MS).start();
+            }
         }
         float y = sideCentre() + SIDE_STEP / 2 + 10;
         adjViews.clear();
@@ -2348,7 +2354,7 @@ public class XmbActivity extends Activity {
         closeSide(true);
         if (prompt == null) {
             prompt = new FrameLayout(this);
-            prompt.setBackgroundColor(0xD9050710);
+            prompt.setBackgroundColor(PROMPT_BG);
             LinearLayout box = new LinearLayout(this);
             box.setOrientation(LinearLayout.VERTICAL);
             promptTitle = text(medium, 34, INK);

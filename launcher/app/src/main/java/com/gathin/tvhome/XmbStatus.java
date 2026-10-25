@@ -60,8 +60,11 @@ final class XmbStatus {
 
     private static final String TAG = "TvHome.Status";
     private static final float ICON = 40, PAD = 18, GAP = 34, GROUP_GAP = 52;
-    private static final long LOW_STORAGE_BYTES = 500L * 1024 * 1024;
-    private static final int LOW_BATTERY = 20;
+    /** Hysteresis round the storage warning: on below the limit less this, off above the limit plus this. */
+    private static final long STORAGE_MARGIN = 50_000_000L;
+    /** xmb_low_battery and xmb_low_storage_mb (XmbConfig). */
+    private int lowBattery = 20;
+    private long lowStorage = 500_000_000L;
     /** A helper that is still not running this long after Home started is not just slow to bind. */
     private static final long HELPER_GRACE_MS = 15_000;
 
@@ -311,11 +314,11 @@ final class XmbStatus {
     private View build0(String key, boolean always) {
         switch (key) {
             case "recording":
-                return XmbRecorder.recording ? image(bitmap(R.drawable.ic_xmb_videocam, 0xFFFFB4B4, 0xA6FF8080, 0xD9E0302A)) : null;
+                return XmbRecorder.recording ? image(bitmap(R.drawable.ic_xmb_videocam, XmbStyle.GLOW_RED)) : null;
             case "battery": {
                 int level = XmbRemoteBattery.level(act);
                 if (level < 0) return null;
-                boolean low = level < LOW_BATTERY;
+                boolean low = level < lowBattery;
                 if (!low && !always) return null;
                 part = low + "/" + level;
                 int res = BATTERY[batteryBlocks(level)];
@@ -326,8 +329,8 @@ final class XmbStatus {
                 long free = freeBytes();
                 if (free < 0) return null;
                 // Low below 450 MB, fine again above 550 MB: no blinking around one value.
-                boolean low = storageLow = storageLow ? free < LOW_STORAGE_BYTES + 50_000_000L
-                        : free < LOW_STORAGE_BYTES - 50_000_000L;
+                boolean low = storageLow = storageLow ? free < lowStorage + STORAGE_MARGIN
+                        : free < lowStorage - STORAGE_MARGIN;
                 if (!low && !always) return null;
                 part = low + "/" + free / 100_000_000L;
                 View icon = low ? warnIcon(R.drawable.ic_xmb_hard_drive) : icon(R.drawable.ic_xmb_hard_drive);
@@ -369,8 +372,7 @@ final class XmbStatus {
                 int band = XmbWeather.pmBand(w.pm25x10);
                 if (!always && band < 3) return null;
                 part = band + "/" + w.pm25();
-                int glow = (0xF2 << 24) | XmbWeather.PM_COLORS[band];
-                return pair(image(bitmap(R.drawable.ic_xmb_masks, Color.WHITE, 0x73FFFFFF, glow)), String.valueOf(w.pm25()));
+                return pair(image(colored(R.drawable.ic_xmb_masks, XmbWeather.PM_COLORS[band])), String.valueOf(w.pm25()));
             }
             case "speed": {
                 // The box's download rate, all apps together; when needed means while something downloads.
@@ -383,11 +385,11 @@ final class XmbStatus {
                 int net = network();
                 part = String.valueOf(net);
                 return net == R.drawable.ic_xmb_wifi_off
-                        ? image(bitmap(net, 0x73FFFFFF, 0x26FFFFFF, 0x14FFFFFF)) : icon(net);
+                        ? image(bitmap(net, XmbStyle.GLOW_FAINT)) : icon(net);
             }
             case "palette":
                 part = Integer.toHexString(accent);
-                return image(bitmap(R.drawable.ic_xmb_palette, Color.WHITE, 0x73FFFFFF, (0xF2 << 24) | (accent & 0xFFFFFF)));
+                return image(colored(R.drawable.ic_xmb_palette, accent));
             default:
                 return null;
         }
@@ -441,6 +443,12 @@ final class XmbStatus {
     private final java.util.Set<String> shown = new java.util.HashSet<>();
     private boolean animate = true;
 
+    /** The warnings' thresholds: the remote's battery in percent, free storage in megabytes. */
+    void setLimits(int batteryPercent, int storageMb) {
+        lowBattery = batteryPercent;
+        lowStorage = storageMb * 1_000_000L;
+    }
+
     /** Animations off (reduced motion): items appear as they are. */
     void setMotion(boolean on) {
         animate = on;
@@ -456,9 +464,9 @@ final class XmbStatus {
             FrameLayout box = new FrameLayout(act);
             box.setClipChildren(false);
             ImageView tray = new ImageView(act);
-            tray.setImageBitmap(bitmap(R.drawable.ic_xmb_download_tray, Color.WHITE, 0x8CFFFFFF, 0x47FFFFFF));
+            tray.setImageBitmap(bitmap(R.drawable.ic_xmb_download_tray, XmbStyle.GLOW_WHITE));
             ImageView arrow = new ImageView(act);
-            arrow.setImageBitmap(bitmap(R.drawable.ic_xmb_download_arrow, Color.WHITE, 0x8CFFFFFF, 0x47FFFFFF));
+            arrow.setImageBitmap(bitmap(R.drawable.ic_xmb_download_arrow, XmbStyle.GLOW_WHITE));
             box.addView(tray, new FrameLayout.LayoutParams(full, full));
             box.addView(arrow, new FrameLayout.LayoutParams(full, full));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(full, full);
@@ -590,11 +598,11 @@ final class XmbStatus {
     private boolean animating = true;
 
     private View icon(int res) {
-        return image(bitmap(res, Color.WHITE, 0x8CFFFFFF, 0x47FFFFFF));
+        return image(bitmap(res, XmbStyle.GLOW_WHITE));
     }
 
     private View warnIcon(int res) {
-        return image(bitmap(res, 0xFFFFE3B0, 0xA6FFD68C, 0xBFF0A028));
+        return image(bitmap(res, XmbStyle.GLOW_AMBER));
     }
 
     /** An icon drawn with its glow: the view is wider than the icon by the glow, and laid out at the icon's size. */
@@ -618,9 +626,9 @@ final class XmbStatus {
         TextView t = new TextView(act);
         t.setTypeface(face);
         t.setTextSize(TypedValue.COMPLEX_UNIT_PX, u.px(38));
-        t.setTextColor(0xE6FFFFFF);
+        t.setTextColor(XmbStyle.FIGURE_INK);
         t.setIncludeFontPadding(false);
-        t.setShadowLayer(u.px(9), 0, 0, 0x66FFFFFF);
+        t.setShadowLayer(u.px(9), 0, 0, XmbStyle.FIGURE_GLOW);
         t.setFontFeatureSettings("tnum");   // equal-width digits: a changing number does not nudge the row
         t.setText(number);
         // The row is as tall as an icon, shorter than a line of this size. Left to wrap, the text was cut to the
@@ -634,10 +642,15 @@ final class XmbStatus {
         return p;
     }
 
-    /** The icon over two glows, a tight one and a wide one (XmbGlow keeps it). */
-    private Bitmap bitmap(int res, int tint, int innerGlow, int outerGlow) {
-        return XmbGlow.icon(res, act.getDrawable(res), u.px(ICON), u.px(PAD), tint, innerGlow, u.px(3), outerGlow,
+    /** The icon in one of XmbStyle's glows: its colour over a tight glow and a wide one (XmbGlow keeps it). */
+    private Bitmap bitmap(int res, int[] glow) {
+        return XmbGlow.icon(res, act.getDrawable(res), u.px(ICON), u.px(PAD), glow[0], glow[1], u.px(3), glow[2],
                 u.px(10));
+    }
+
+    /** A white icon whose wide glow is a colour of its own (the theme colour, the dust's band). */
+    private Bitmap colored(int res, int rgb) {
+        return bitmap(res, new int[]{Color.WHITE, XmbStyle.COLOR_GLOW_INNER, (XmbStyle.COLOR_GLOW_ALPHA << 24) | (rgb & 0xFFFFFF)});
     }
 
     /**

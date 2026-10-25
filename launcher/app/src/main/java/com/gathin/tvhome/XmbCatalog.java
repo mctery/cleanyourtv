@@ -35,17 +35,50 @@ final class XmbCatalog {
     static final List<String> APP_CATEGORIES = Collections.unmodifiableList(Arrays.asList(VIDEO, MUSIC, APPS));
     static final String PREF_MOVES = "xmb_moves";
 
-    /** Streaming and video apps that do not declare android:appCategory="video" themselves. */
-    private static final Set<String> VIDEO_PACKAGES = new HashSet<>(Arrays.asList(
-            "com.netflix.ninja", "com.google.android.youtube.tv", "com.google.android.youtube.tvkids",
-            "com.amazon.amazonvideo.livingroom", "com.disney.disneyplus", "com.wbd.stream",
-            "com.ais.mimo.aisplay.tv", "com.beci.thaitv3android", "com.google.android.videos",
-            "com.xiaomi.mitv.mediaexplorer", "com.mitv.videoplayer", "com.apple.atve.androidtv.appletv",
-            "com.plexapp.android", "org.xbmc.kodi", "com.mxtech.videoplayer.ad", "com.android.tv"));
-    private static final String[] VIDEO_PREFIXES = {"in.startv.hotstar", "com.hbo.", "com.amazon.amazonvideo."};
-    private static final Set<String> MUSIC_PACKAGES = new HashSet<>(Arrays.asList(
-            "com.google.android.youtube.tvmusic", "com.spotify.tv.android", "com.xiaomi.mimusic2",
-            "com.apple.android.music", "com.tencent.ibg.joox", "deezer.android.tv", "com.aspiro.tidal"));
+    /**
+     * What the launcher knows about apps that do not say what they are (android:appCategory): the streaming and
+     * music apps, and the apps the ready-made menus collect, by package name from config.xml or a theme
+     * (xmb_video_apps, xmb_music_apps, xmb_menu_apps "menu:package"). A name ending in "." takes every package
+     * that starts with it.
+     */
+    static final class Known {
+        private final List<String> video, music, menuApps;
+
+        Known(List<String> video, List<String> music, List<String> menuApps) {
+            this.video = video;
+            this.music = music;
+            this.menuApps = menuApps;
+        }
+
+        static boolean matches(String entry, String pkg) {
+            String e = entry.trim();
+            return !e.isEmpty() && (e.endsWith(".") ? pkg.startsWith(e) : pkg.equals(e));
+        }
+
+        private static boolean any(List<String> entries, String pkg) {
+            for (String e : entries) if (matches(e, pkg)) return true;
+            return false;
+        }
+
+        boolean video(String pkg) {
+            return any(video, pkg);
+        }
+
+        boolean music(String pkg) {
+            return any(music, pkg);
+        }
+
+        /** The first of the menus (in their order) whose apps include the package, or null. */
+        String menuFor(String pkg, List<String> menus) {
+            for (String m : menus) {
+                for (String e : menuApps) {
+                    int colon = e.indexOf(':');
+                    if (colon > 0 && e.substring(0, colon).trim().equals(m) && matches(e.substring(colon + 1), pkg)) return m;
+                }
+            }
+            return null;
+        }
+    }
 
     /** An app's decoded art, shared between reloads through the drawables' constant states. */
     private static final class Art {
@@ -169,8 +202,8 @@ final class XmbCatalog {
     }
 
     /** The category for the built-in menus only (no menus of the owner's). */
-    static String categoryFor(String pkg, int appCategory, List<String> overrides) {
-        return categoryFor(pkg, appCategory, false, overrides, Collections.emptyList());
+    static String categoryFor(String pkg, int appCategory, List<String> overrides, Known known) {
+        return categoryFor(pkg, appCategory, false, overrides, Collections.emptyList(), known);
     }
 
     /**
@@ -179,7 +212,8 @@ final class XmbCatalog {
      * then a preset menu that takes the app's own android:appCategory (games, social...), then that category's
      * built-in match (video, audio), else Apps.
      */
-    static String categoryFor(String pkg, int appCategory, boolean game, List<String> overrides, List<String> menus) {
+    static String categoryFor(String pkg, int appCategory, boolean game, List<String> overrides, List<String> menus,
+                              Known known) {
         String chosen = null;
         for (String entry : overrides) {
             int eq = entry.indexOf('=');
@@ -190,13 +224,10 @@ final class XmbCatalog {
             }
         }
         if (chosen != null) return chosen;
-        for (String m : menus) {
-            XmbMenus.Preset p = XmbMenus.preset(m);
-            if (p != null && p.takesPackage(pkg)) return m;
-        }
-        if (VIDEO_PACKAGES.contains(pkg)) return VIDEO;
-        for (String prefix : VIDEO_PREFIXES) if (pkg.startsWith(prefix)) return VIDEO;
-        if (MUSIC_PACKAGES.contains(pkg)) return MUSIC;
+        String named = known.menuFor(pkg, menus);
+        if (named != null) return named;
+        if (known.video(pkg)) return VIDEO;
+        if (known.music(pkg)) return MUSIC;
         for (String m : menus) {
             XmbMenus.Preset p = XmbMenus.preset(m);
             if (p != null && p.takesCategory(appCategory, game)) return m;
@@ -267,7 +298,7 @@ final class XmbCatalog {
             if (m.holdsApps() && !m.builtIn()) appMenus.add(m.key);
         }
 
-        List<String> overrides = new ArrayList<>(cfg.xmbCategories);
+        List<String> overrides = new ArrayList<>(cfg.xmb.categories);
         overrides.addAll(moves(ctx));
         Set<String> hidden = new HashSet<>(cfg.hiddenApps);
         Map<String, Integer> ranks = Order.ranks(Order.load(Order.file(ctx)), cfg.dockApps);
@@ -317,7 +348,7 @@ final class XmbCatalog {
             int appCategory = ai != null ? ai.category : -1;
             @SuppressWarnings("deprecation")
             boolean game = ai != null && (ai.flags & ApplicationInfo.FLAG_IS_GAME) != 0;
-            byCat.get(categoryFor(pkg, appCategory, game, overrides, appMenus)).add(item);
+            byCat.get(categoryFor(pkg, appCategory, game, overrides, appMenus, cfg.xmb.known)).add(item);
         }
         ART.keySet().retainAll(liveArt);
         // Same order as the tile grid: the owner's saved order, then dock_apps, then by name.
