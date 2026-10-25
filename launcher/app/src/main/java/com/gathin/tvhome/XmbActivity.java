@@ -3204,10 +3204,11 @@ public class XmbActivity extends Activity {
         int start = ADD.equals(focusKey) ? menus.size() : Math.max(0, menuIndex(focusKey));
         showSide(texts, icons, start, i -> {
             if (i == menus.size()) openPresets();
-            else openMenuActions(menus.get(i).key, 0);
+            else openMenuActions(menus.get(i).key, R.string.xmb_menu_rename);
         }, null);
     }
 
+    /** A category's actions, with the one named by {@code focus} (a string) selected, else Rename. */
     private void openMenuActions(String key, int focus) {
         int at = menuIndex(key);
         if (at < 0) {
@@ -3215,31 +3216,40 @@ public class XmbActivity extends Activity {
             return;
         }
         XmbMenus.Menu m = menus.get(at);
-        List<String> texts = new ArrayList<>();
+        List<Integer> names = new ArrayList<>();
         List<Integer> icons = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
-        texts.add(getString(R.string.xmb_menu_rename));
+        names.add(R.string.xmb_menu_rename);
         icons.add(R.drawable.ic_xmb_edit);
         actions.add(() -> askText(getString(R.string.xmb_menu_name_hint), XmbCatalog.label(this, m),
                 name -> {
                     replaceMenu(key, new XmbMenus.Menu(key, name, m.icon));
-                    openMenuActions(key, 0);
-                }, () -> openMenuActions(key, 0)));
-        texts.add(getString(R.string.xmb_menu_icon));
+                    openMenuActions(key, R.string.xmb_menu_rename);
+                }, () -> openMenuActions(key, R.string.xmb_menu_rename)));
+        if (XmbCatalog.renamed(this, m)) {
+            // Its own name again, which follows the box's language.
+            names.add(R.string.xmb_menu_default_name);
+            icons.add(R.drawable.ic_xmb_language);
+            actions.add(() -> {
+                replaceMenu(key, new XmbMenus.Menu(key, null, m.icon));
+                openMenuActions(key, R.string.xmb_menu_rename);
+            });
+        }
+        names.add(R.string.xmb_menu_icon);
         icons.add(R.drawable.ic_xmb_category);
         actions.add(() -> openIcons(key));
         if (at > 0) {
-            texts.add(getString(R.string.xmb_menu_left));
+            names.add(R.string.xmb_menu_left);
             icons.add(R.drawable.ic_xmb_chevron_left);
             actions.add(() -> moveMenu(key, -1));
         }
         if (at < menus.size() - 1) {
-            texts.add(getString(R.string.xmb_menu_right));
+            names.add(R.string.xmb_menu_right);
             icons.add(R.drawable.ic_xmb_chevron_right);
             actions.add(() -> moveMenu(key, 1));
         }
         if (!m.builtIn()) {
-            texts.add(getString(R.string.xmb_menu_delete));
+            names.add(R.string.xmb_menu_delete);
             icons.add(R.drawable.ic_xmb_delete);
             actions.add(() -> {
                 String label = XmbCatalog.label(this, m);
@@ -3250,7 +3260,9 @@ public class XmbActivity extends Activity {
                 openMenus(null);
             });
         }
-        showSide(texts, icons, focus, i -> actions.get(i).run(), () -> openMenus(key));
+        List<String> texts = new ArrayList<>();
+        for (int name : names) texts.add(getString(name));
+        showSide(texts, icons, Math.max(0, names.indexOf(focus)), i -> actions.get(i).run(), () -> openMenus(key));
     }
 
     private void replaceMenu(String key, XmbMenus.Menu with) {
@@ -3270,11 +3282,11 @@ public class XmbActivity extends Activity {
         XmbMenus.save(this, next);
         closeSide(true);
         reload();
-        // The same move stays selected, so OK again moves it further (at an end, the other move): Rename, Icon,
-        // then Move left when there is room on the left, then Move right.
+        // The same move stays selected, so OK again moves it further (at an end, the other move).
         int now = menuIndex(key);
         boolean hasLeft = now > 0, hasRight = now < menus.size() - 1;
-        openMenuActions(key, by > 0 && hasRight && hasLeft ? 3 : 2);
+        openMenuActions(key, by > 0 ? (hasRight ? R.string.xmb_menu_right : R.string.xmb_menu_left)
+                : (hasLeft ? R.string.xmb_menu_left : R.string.xmb_menu_right));
     }
 
     private void openIcons(String key) {
@@ -3292,8 +3304,8 @@ public class XmbActivity extends Activity {
         }
         showSide(texts, icons, start, i -> {
             replaceMenu(key, new XmbMenus.Menu(key, m.label, names.get(i)));
-            openMenuActions(key, 1);
-        }, () -> openMenuActions(key, 1));
+            openMenuActions(key, R.string.xmb_menu_icon);
+        }, () -> openMenuActions(key, R.string.xmb_menu_icon));
     }
 
     private void openPresets() {
@@ -3310,7 +3322,7 @@ public class XmbActivity extends Activity {
         showSide(texts, icons, 0, i -> {
             if (i < free.size()) {
                 XmbMenus.Preset p = free.get(i);
-                String key = addMenu(p.key, getString(p.label), p.icon);
+                String key = addMenu(p.key, null, p.icon);   // its own name, in the box's language
                 openMenus(key);
             } else {
                 askText(getString(R.string.xmb_menu_name_hint), "", name -> {
@@ -3327,11 +3339,12 @@ public class XmbActivity extends Activity {
         List<XmbMenus.Menu> next = new ArrayList<>(menus);
         int network = next.size();
         for (int i = 0; i < next.size(); i++) if (XmbCatalog.NETWORK.equals(next.get(i).key)) network = i;
-        next.add(network, new XmbMenus.Menu(key, label, icon));
+        XmbMenus.Menu menu = new XmbMenus.Menu(key, label, icon);
+        next.add(network, menu);
         XmbMenus.save(this, next);
         closeSide(true);
         reload();
-        showToast(getString(R.string.xmb_menu_added, label));
+        showToast(getString(R.string.xmb_menu_added, XmbCatalog.label(this, menu)));
         return key;
     }
 

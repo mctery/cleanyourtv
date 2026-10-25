@@ -192,9 +192,11 @@ theme; a colour picked on the TV wins until that value changes.
 
 Settings > Categories lists them: pick one to rename it, change its icon (from 40 Material Symbols), move it left or
 right, or remove it (your own only); Add category offers Games, Tools, Social, Sports, News, Kids, Learning, Shopping
-and Photos, or a name typed with the TV's keyboard (or said into the remote). From a computer (the key keeps its
-older name): `"xmb_menus": ["games:Games:sports_esports", "tools:Tools:handyman"]`. Categories changed on the TV win;
-one a theme adds later still appears unless it was removed on the TV.
+and Photos, or a name typed with the TV's keyboard (or said into the remote). The built-in categories and the presets
+are named in the TV's language (English or Thai) and follow it when it changes; one you rename keeps your name until
+Use default name. From a computer (the key keeps its older name): `"xmb_menus": ["games", "tools", "social"]`, or
+`"games:Arcade:sports_esports"` for a name and icon of your own. Categories changed on the TV win; one a theme adds
+later still appears unless it was removed on the TV.
 
 Those preset keys also collect apps by themselves: games takes every app that says it is a game, social, news and
 photos the apps of that Android category, tools the productivity apps, browsers, remote-desktop apps and Play

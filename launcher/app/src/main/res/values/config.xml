@@ -436,8 +436,9 @@
     </string-array>
     <!-- XMB home: categories of your own beside the built-in ones, as "key:label:icon", e.g.
          games:Games:sports_esports. Keys games, tools, social, sports, news, kids, learn, shopping and photos also
-         collect matching apps by themselves; the icons are listed in XmbMenus.ICONS. Menus added, renamed or
-         removed on the TV (Settings > Menus) win over this. Leave empty to omit. -->
+         collect matching apps by themselves, and without a label (games, or games::sports_esports) show their own
+         name in the box's language; the icons are listed in XmbMenus.ICONS. Categories added, renamed or removed on
+         the TV (Settings > Categories) win over this. Leave empty to omit. -->
     <string-array name="xmb_menus" translatable="false">
     </string-array>
     <!-- XMB home: the wave's colour, "month" (a colour for each month, the default), month1 to month12 for one of

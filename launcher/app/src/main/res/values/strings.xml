@@ -245,6 +245,7 @@
     <string name="xmb_menus_detail">Add, rename, reorder and set icons</string>
     <string name="xmb_menu_add">Add category</string>
     <string name="xmb_menu_rename">Rename</string>
+    <string name="xmb_menu_default_name">Use default name</string>
     <string name="xmb_menu_icon">Change icon</string>
     <string name="xmb_menu_left">Move left</string>
     <string name="xmb_menu_right">Move right</string>

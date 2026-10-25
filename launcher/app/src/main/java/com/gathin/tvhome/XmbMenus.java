@@ -18,7 +18,7 @@ import java.util.Set;
 
 /**
  * The XMB's categories and their order: the five built-in ones and the owner's own (Games, Tools, Social...), each
- * with a label and an icon of its choice. Made on the TV (Settings > Menus) or listed in config.xml / a theme as
+ * with a label and an icon of its choice. Made on the TV (Settings > Categories) or listed in config.xml / a theme as
  * xmb_menus, "key:label:icon". A list edited on the TV is kept in the settings and wins; a menu the theme adds
  * later still appears, unless it was removed on the TV.
  *
@@ -118,7 +118,7 @@ final class XmbMenus {
 
     static final class Menu {
         final String key;
-        /** The owner's label, or null for a built-in menu's own (translated) label. */
+        /** The owner's label, or null for a built-in or preset menu's own name, in the box's language. */
         final String label;
         /** An {@link #ICONS} name, or null for a built-in menu's own icon. */
         final String icon;

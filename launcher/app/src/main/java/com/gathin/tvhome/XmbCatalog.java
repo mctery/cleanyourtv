@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -19,6 +20,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -355,19 +357,50 @@ final class XmbCatalog {
     }
 
 
-    static String label(Context ctx, String category) {
-        switch (category) {
-            case SETTINGS: return ctx.getString(R.string.xmb_cat_settings);
-            case VIDEO: return ctx.getString(R.string.xmb_cat_video);
-            case MUSIC: return ctx.getString(R.string.xmb_cat_music);
-            case APPS: return ctx.getString(R.string.xmb_cat_apps);
-            default: return ctx.getString(R.string.xmb_cat_network);
+    /** The string of a category's own name, a built-in one's or a preset's; 0 for one the owner made. */
+    static int ownLabel(String key) {
+        switch (key) {
+            case SETTINGS: return R.string.xmb_cat_settings;
+            case VIDEO: return R.string.xmb_cat_video;
+            case MUSIC: return R.string.xmb_cat_music;
+            case APPS: return R.string.xmb_cat_apps;
+            case NETWORK: return R.string.xmb_cat_network;
+            default:
+                XmbMenus.Preset p = XmbMenus.preset(key);
+                return p != null ? p.label : 0;
         }
     }
 
-    /** A menu's label: the owner's, else the built-in one's. */
+    /** The languages the XMB's strings are in (values, values-th). */
+    private static final String[] LANGUAGES = {"en", "th"};
+    /** A category's own name in each of {@link #LANGUAGES}, by string; made on first use. */
+    private static final Map<Integer, Set<String>> OWN_NAMES = new HashMap<>();
+
+    /** A menu's label: the name the owner gave it, else its own name in the box's language, else its key. */
     static String label(Context ctx, XmbMenus.Menu m) {
-        return m.label != null ? m.label : m.builtIn() ? label(ctx, m.key) : m.key;
+        int own = ownLabel(m.key);
+        if (own == 0) return m.label != null ? m.label : m.key;
+        return renamed(ctx, m) ? m.label : ctx.getString(own);
+    }
+
+    /**
+     * The menu has a name the owner gave it in place of its own. A label that is its own name in one of the XMB's
+     * languages (a theme's "games:เกม", or one saved by an earlier build) is not, so it follows the box's language.
+     */
+    static boolean renamed(Context ctx, XmbMenus.Menu m) {
+        int own = ownLabel(m.key);
+        if (own == 0 || m.label == null) return false;
+        Set<String> names = OWN_NAMES.get(own);
+        if (names == null) {
+            names = new HashSet<>();
+            for (String tag : LANGUAGES) {
+                Configuration c = new Configuration(ctx.getResources().getConfiguration());
+                c.setLocale(Locale.forLanguageTag(tag));
+                names.add(ctx.createConfigurationContext(c).getString(own));
+            }
+            OWN_NAMES.put(own, names);
+        }
+        return !names.contains(m.label);
     }
 
     /** A menu's icon: the one chosen for it, else the built-in one's, else the preset's, else a star. */

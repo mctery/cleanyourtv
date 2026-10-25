@@ -151,6 +151,7 @@
     <string name="xmb_menus_detail">เพิ่ม เปลี่ยนชื่อ จัดลำดับ และกำหนดไอคอน</string>
     <string name="xmb_menu_add">เพิ่มหมวดหมู่</string>
     <string name="xmb_menu_rename">เปลี่ยนชื่อ</string>
+    <string name="xmb_menu_default_name">ใช้ชื่อเริ่มต้น</string>
     <string name="xmb_menu_icon">เปลี่ยนไอคอน</string>
     <string name="xmb_menu_left">ย้ายไปทางซ้าย</string>
     <string name="xmb_menu_right">ย้ายไปทางขวา</string>

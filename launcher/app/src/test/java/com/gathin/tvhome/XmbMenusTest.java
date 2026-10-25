@@ -57,6 +57,13 @@ public class XmbMenusTest {
         assertEquals("menu2", XmbMenus.newKey(menus, "video"));
     }
 
+    @Test public void builtInsAndPresetsHaveTheirOwnName() {
+        assertEquals(R.string.xmb_cat_video, XmbCatalog.ownLabel(XmbCatalog.VIDEO));
+        assertEquals(R.string.xmb_cat_network, XmbCatalog.ownLabel(XmbCatalog.NETWORK));
+        assertEquals(R.string.xmb_menu_social, XmbCatalog.ownLabel("social"));
+        assertEquals(0, XmbCatalog.ownLabel("menu1"));   // one the owner made has only the name typed for it
+    }
+
     @Test public void builtInsHoldAppsExceptSettingsAndNetwork() {
         assertFalse(new XmbMenus.Menu("settings", null, null).holdsApps());
         assertFalse(new XmbMenus.Menu("network", null, null).holdsApps());
