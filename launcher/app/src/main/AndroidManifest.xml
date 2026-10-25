@@ -95,7 +95,7 @@
     </queries>
 
     <application
-        android:label="@string/app_name"
+        android:label="@string/xmb_app_name"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/banner"
         android:theme="@style/Theme.TvHome"
@@ -269,7 +269,7 @@
         <service
             android:name=".InputKeyService"
             android:exported="false"
-            android:label="@string/app_name"
+            android:label="@string/xmb_remote_keys"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />

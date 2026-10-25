@@ -1,6 +1,7 @@
-# XMB home
+# Crossbar, an XMB-style home
 
-On this branch the launcher's Home is a PlayStation 3 style cross-bar. Five categories run across the screen
+On this branch the launcher is called Crossbar (Android lists it, and its remote-button helper, by that name), and its
+Home is a PlayStation 3 style cross-bar. Five categories run across the screen
 (Settings, Video, Music, Apps, Network), the selected category's items run down from it, and the selected item
 always sits right under the category icon, with the items already passed stacked above the bar, as on a PS3.
 Behind it runs the PS3 wave in a colour that changes every month and dims at night.
@@ -79,8 +80,8 @@ animation shows it at any time, when Diagnostics is listed (below).
 
 Nothing on screen jumps. Moves take 240 ms with KittiwanaNotify's easing. In the status row an item that comes glows
 up, one that goes fades out where it stood, one that changes (the Wi-Fi strength, the temperature, the dust's
-colour) cross-fades, and the others slide to their new places. On the cross-bar a setting's value, a menu's name or
-icon cross-fades where it is; an app installed, removed or moved and a menu added, removed or moved slide the
+colour) cross-fades, and the others slide to their new places. On the cross-bar a setting's value, a category's name or
+icon cross-fades where it is; an app installed, removed or moved and a category added, removed or moved slide the
 categories and rows that stay to their new places while new ones come in and the others fade out. The side list's
 entries fade out when it closes or changes level, slide when one is carried, and cross-fade when a value changes; the
 name prompt and the colour picker fade in and out. The wave drifts into a new colour (the hour's or the month's) over
@@ -187,19 +188,19 @@ and Right turn the hue, Up and Down the brightness, OK saves, Back cancels. Ever
 month's. From a computer: `"xmb_color": "#234EBA"` (or `"month"`, `"month1"` to `"month12"`) in `config.xml` or a
 theme; a colour picked on the TV wins until that value changes.
 
-## Menus
+## Categories
 
-Settings > Menus lists the categories: pick one to rename it, change its icon (from 40 Material Symbols), move it
-left or right, or remove it (your own only); Add a menu offers Games, Tools, Social, Sports, News, Kids, Learning,
-Shopping and Photos, or a name typed with the TV's keyboard (or said into the remote). From a computer:
-`"xmb_menus": ["games:Games:sports_esports", "tools:Tools:handyman"]`. Menus changed on the TV win; a menu a theme
-adds later still appears unless it was removed on the TV.
+Settings > Categories lists them: pick one to rename it, change its icon (from 40 Material Symbols), move it left or
+right, or remove it (your own only); Add category offers Games, Tools, Social, Sports, News, Kids, Learning, Shopping
+and Photos, or a name typed with the TV's keyboard (or said into the remote). From a computer (the key keeps its
+older name): `"xmb_menus": ["games:Games:sports_esports", "tools:Tools:handyman"]`. Categories changed on the TV win;
+one a theme adds later still appears unless it was removed on the TV.
 
 Those preset keys also collect apps by themselves: games takes every app that says it is a game, social, news and
 photos the apps of that Android category, tools the productivity apps, browsers, remote-desktop apps and Play
 Store, and each a few known package names. An app moved with Hold OK, or listed in `xmb_categories`
-(`"com.example.app=tools"`), goes where it was put. A menu of your own with no apps yet shows a line saying how to
-fill it; an empty built-in one is left out.
+(`"com.example.app=tools"`), goes where it was put. A category of your own with no apps yet shows a line saying how
+to fill it; an empty built-in one is left out.
 
 ## Background music
 
@@ -215,7 +216,7 @@ TV apps go in Video, Music or Apps, and so does an app installed by hand that ha
 APK, which Android TV's own home leaves out; system apps of that kind stay out): known streaming and music apps by
 package name (`xmb_video_apps` and `xmb_music_apps` in `config.xml`, which a theme can replace), then the app's own
 `android:appCategory`, else Apps.
-The ready-made menus of your own (Games, Tools, Social...) collect apps by name the same way (`xmb_menu_apps`,
+The ready-made categories (Games, Tools, Social...) collect apps by name the same way (`xmb_menu_apps`,
 `"tools:com.android.vending"`) and by their own category. **Hold OK > Reorder** picks an app up: Up and Down carry it through its category (it stays under the bar, its title in
 the theme colour), OK or Back puts it down. That category's order is kept (the tile grid's `order.txt`); one put back
 as it was sorts by name again, in the TV's language. Move an app with **Hold OK > Move to category**, or list it in
@@ -225,7 +226,7 @@ as it was sorts by name again, in the TV's language. Move an app with **Hold OK 
 `hidden_apps`,
 `app_labels`, `app_banners` and `launch_actions` apply as on the grid.
 
-Settings holds TV settings, Display and sound, Apps, Running apps and the menu-sound switch. Network shows the connection with
+Settings holds TV settings, Display and sound, Manage apps, Running apps and the menu-sound switch. Network shows the connection with
 its address, the speed test and the Private DNS in use.
 
 ## Sounds

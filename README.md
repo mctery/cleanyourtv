@@ -1,7 +1,8 @@
-<p align="center"><img src="docs/xmb/home.jpg" alt="The XMB home on a Xiaomi Mi Box S: categories across, the selected one's apps down, the PS3 wave behind" width="720"></p>
+<p align="center"><img src="docs/xmb/home.jpg" alt="Crossbar, the XMB-style home, on a Xiaomi Mi Box S: categories across, the selected one's apps down, the PS3 wave behind" width="720"></p>
 
-> **About this fork:** on its default branch, `xmb-home`, the launcher's Home is a PlayStation 3 style cross-bar
-> (XMB), tested on a Xiaomi Mi Box S. Screenshots, what it does and how to install it: **[docs/xmb.md](docs/xmb.md)**.
+> **About this fork:** on its default branch, `xmb-home`, the launcher is Crossbar: Home as a PlayStation 3 style
+> cross-bar (XMB style), tested on a Xiaomi Mi Box S. Screenshots, what it does and how to install it:
+> **[docs/xmb.md](docs/xmb.md)**.
 > The rest is [CleanYourTV](https://github.com/Gathin23/cleanyourtv) as it is, merged in from time to time.
 
 <p align="center">

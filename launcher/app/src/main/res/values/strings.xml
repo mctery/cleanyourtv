@@ -149,6 +149,10 @@
     <!-- Cinematic top shelf (cinematic_home): the line under the focused dock app's name; %1$s is when it was
          last opened, e.g. "5 minutes ago" or "yesterday, 9:40 pm". -->
     <string name="last_opened">Last opened %1$s</string>
+    <!-- The XMB branch's name for the launcher (Settings > Apps, the Home choice) and its remote-button helper
+         (Accessibility). A name of its own: XMB and XrossMediaBar are Sony's trademarks. -->
+    <string name="xmb_app_name" translatable="false">Crossbar</string>
+    <string name="xmb_remote_keys">Crossbar remote keys</string>
     <!-- XMB home (XmbActivity): category names under the cross-bar icons, and the built-in items. -->
     <string name="xmb_cat_settings">Settings</string>
     <string name="xmb_cat_video">Video</string>
@@ -159,7 +163,7 @@
     <string name="xmb_tv_settings_detail">Picture, sound, accounts and system</string>
     <string name="xmb_display">Display and sound</string>
     <string name="xmb_display_detail">Resolution, HDR and audio output</string>
-    <string name="xmb_apps">Apps</string>
+    <string name="xmb_apps">Manage apps</string>
     <string name="xmb_apps_detail">Enable or disable apps</string>
     <!-- Settings > Running apps (XmbRunning, XmbCloser). %1$s: memory free, %2$s: memory in all. -->
     <string name="xmb_running">Running apps</string>
@@ -237,18 +241,18 @@
     <string name="xmb_color_brightness">Brightness</string>
     <!-- %1$s: the colour's code, "#D6517A", then what the keys do. -->
     <string name="xmb_color_hint">%1$s      OK to save, Back to cancel</string>
-    <string name="xmb_menus">Menus</string>
+    <string name="xmb_menus">Categories</string>
     <string name="xmb_menus_detail">Add, rename, reorder and set icons</string>
-    <string name="xmb_menu_add">Add menu</string>
+    <string name="xmb_menu_add">Add category</string>
     <string name="xmb_menu_rename">Rename</string>
     <string name="xmb_menu_icon">Change icon</string>
     <string name="xmb_menu_left">Move left</string>
     <string name="xmb_menu_right">Move right</string>
-    <string name="xmb_menu_delete">Delete menu</string>
+    <string name="xmb_menu_delete">Delete category</string>
     <string name="xmb_menu_type">Enter a name</string>
-    <string name="xmb_menu_name_hint">Menu name</string>
+    <string name="xmb_menu_name_hint">Category name</string>
     <string name="xmb_menu_keyboard">Type or speak a name, then press OK</string>
-    <string name="xmb_menu_empty">No apps in this menu</string>
+    <string name="xmb_menu_empty">No apps in this category</string>
     <string name="xmb_menu_empty_detail">Hold OK on an app and select Move to category</string>
     <string name="xmb_menu_added">Added %1$s</string>
     <string name="xmb_menu_removed">Deleted %1$s</string>
