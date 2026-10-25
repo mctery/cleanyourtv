@@ -378,7 +378,8 @@ public class XmbActivity extends Activity {
             // the menu comes in at the animation's mark
         } else if (introDue) {
             playIntro(jingle);
-        } else if (returnDue) {
+        } else if (returnDue || launched) {
+            // (launched: back before the app had come up, or it closed at once; Home was never stopped)
             if (closingApps) settle();   // the same picture as before the cover: nothing to bring in
             else playReturn();
         } else if (pendingAnim != null || launching) {
@@ -518,6 +519,9 @@ public class XmbActivity extends Activity {
         if (stopped || returnDue || introDue || intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         // Brought back by XmbCloser after closing apps, not the Home button: the place and the list stay.
         if (intent.getBooleanExtra(XmbCloser.EXTRA_BACK, false)) return;
+        // Home pressed while an app was still coming up (Home paused for it, not yet stopped): the way back from that
+        // app, not Home pressed on Home. Taken for the latter, the menu its opening had faded out never came back.
+        if (launched || (!resumed && !pausePending)) return;
         XmbDebug.log(R.string.xmb_log_home_on_home);
         putDown();
         if (booting) {
@@ -1486,6 +1490,8 @@ public class XmbActivity extends Activity {
     private int swallowUntilUp;
     /** OK was pressed on an app: the cross-bar is fading out and the app about to open. */
     private boolean launching;
+    /** The menu faded out for an app it opened, until it is put back (restoreAfterLaunch), whatever came between. */
+    private boolean launched;
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
@@ -1558,6 +1564,7 @@ public class XmbActivity extends Activity {
         }
         // As on the PS3: the chosen tile steps forward and brightens, the cross-bar fades, then the app opens.
         launching = true;
+        launched = true;
         // (A view's animator keeps its start delay for the next animation, so every one here sets its own.)
         r.thumbBox.animate().scaleX(LAUNCH_ZOOM).scaleY(LAUNCH_ZOOM).setStartDelay(0).setDuration(LAUNCH_ZOOM_MS)
                 .setInterpolator(ease).start();
@@ -1584,6 +1591,7 @@ public class XmbActivity extends Activity {
     /** Puts back what the launch animation moved, at once (returning plays its own animation over it). */
     private void restoreAfterLaunch() {
         launching = false;
+        launched = false;
         catsRow.animate().cancel();
         catsRow.setAlpha(1f);
         catsRow.setTranslationY(px(CAT_TOP));   // its place: place() positions by translation
@@ -1795,25 +1803,18 @@ public class XmbActivity extends Activity {
     }
 
     /** Back from an app: the cross-bar fades in, settling from slightly larger, the categories closing in. */
+    /**
+     * Back from an app: the menu fades in where it was. Nothing moves: it came in from a little larger with the other
+     * categories closing in, which moved the whole screen, the clock and the status row too, after every app.
+     */
     private void playReturn() {
         settle();
         if (animMs == 0 || idle) return;
         ui.animate().cancel();
         ui.setAlpha(0f);
-        ui.setScaleX(RETURN_ZOOM);
-        ui.setScaleY(RETURN_ZOOM);
-        for (int i = 0; i < catViews.size(); i++) {
-            if (i != cat) catViews.get(i).root.setTranslationX(px(i * SLOT) + px(i < cat ? -RETURN_SPREAD : RETURN_SPREAD));
-        }
-        queueAnim(() -> {
-            ui.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(0).setDuration(RETURN_MS).setInterpolator(ease)
-                    .start();
-            for (int i = 0; i < catViews.size(); i++) {
-                if (i == cat) continue;
-                catViews.get(i).root.animate().translationX(px(i * SLOT)).setStartDelay(0).setDuration(RETURN_ROW_MS)
-                        .setInterpolator(ease).start();
-            }
-        });
+        // In a layer: the whole menu is not drawn again for every frame of the fade.
+        queueAnim(() -> ui.animate().alpha(1f).setStartDelay(0).setDuration(RETURN_MS).setInterpolator(ease).withLayer()
+                .start());
     }
 
     /** Puts everything the launch, intro or return animations move back where it belongs, at once. */

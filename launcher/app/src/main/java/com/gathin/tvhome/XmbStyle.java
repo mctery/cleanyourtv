@@ -27,9 +27,8 @@ final class XmbStyle {
     static final long LAUNCH_ZOOM_MS = 180, LAUNCH_FADE_MS = 200, LAUNCH_ROW_MS = 220, LAUNCH_COLUMN_DELAY_MS = 60,
             LAUNCH_START_MS = 200;
     static final float LAUNCH_ZOOM = 1.1f, LAUNCH_GLOW = 1.15f, LAUNCH_RISE = 20;
-    /** Back from an app: Home fades in from a little larger, the other categories closing in from RETURN_SPREAD. */
-    static final long RETURN_MS = 420, RETURN_ROW_MS = 480;
-    static final float RETURN_ZOOM = 1.04f, RETURN_SPREAD = 40;
+    /** Back from an app: the menu fades in where it was. */
+    static final long RETURN_MS = 420;
     /**
      * The intro: the wave out of black, the categories in from INTRO_ROW_FROM units to the right one after another
      * outwards from the selected one, the column up from INTRO_COLUMN_FROM, the clock last. When Home only restarted,
