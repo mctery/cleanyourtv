@@ -198,8 +198,10 @@ on, and it loops without a gap.
 
 ## What goes where
 
-TV apps go in Video, Music or Apps: known streaming and music apps by package name (`xmb_video_apps` and
-`xmb_music_apps` in `config.xml`, which a theme can replace), then the app's own `android:appCategory`, else Apps.
+TV apps go in Video, Music or Apps, and so does an app installed by hand that has only a phone entry (a sideloaded
+APK, which Android TV's own home leaves out; system apps of that kind stay out): known streaming and music apps by
+package name (`xmb_video_apps` and `xmb_music_apps` in `config.xml`, which a theme can replace), then the app's own
+`android:appCategory`, else Apps.
 The ready-made menus of your own (Games, Tools, Social...) collect apps by name the same way (`xmb_menu_apps`,
 `"tools:com.android.vending"`) and by their own category. **Hold OK > Reorder** picks an app up: Up and Down carry it through its category (it stays under the bar, its title in
 the theme colour), OK or Back puts it down. That category's order is kept (the tile grid's `order.txt`); one put back

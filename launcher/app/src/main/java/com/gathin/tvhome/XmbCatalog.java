@@ -479,8 +479,19 @@ final class XmbCatalog {
         if (in != null && in.cfg == cfg) return in;
         in = new Installed(cfg);
         Set<String> hidden = new HashSet<>(cfg.hiddenApps);
-        List<ResolveInfo> found = pm.queryIntentActivities(
-                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0);
+        List<ResolveInfo> found = new ArrayList<>(pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0));
+        // An app installed by hand with only a phone entry (a sideloaded APK) is listed too, opened through that
+        // entry: Android TV's own home leaves such apps out, and they could not be opened. System apps with only a
+        // phone entry stay out; on a TV they are not meant to be opened.
+        Set<String> tv = new HashSet<>(), phoneOnly = new HashSet<>();
+        for (ResolveInfo ri : found) if (ri.activityInfo != null) tv.add(ri.activityInfo.packageName);
+        for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
+            ApplicationInfo app = ri.activityInfo != null ? ri.activityInfo.applicationInfo : null;
+            if (app == null || tv.contains(app.packageName)
+                    || (app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
+            if (phoneOnly.add(app.packageName)) found.add(ri);
+        }
         String settingsPkg = settingsPackage(pm);
         Set<String> seen = new HashSet<>();
         Set<String> liveArt = new HashSet<>();
@@ -510,7 +521,7 @@ final class XmbCatalog {
                 }
             }
             Intent launch = new Intent(Intent.ACTION_MAIN).setComponent(component)
-                    .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                    .addCategory(phoneOnly.contains(pkg) ? Intent.CATEGORY_LAUNCHER : Intent.CATEGORY_LEANBACK_LAUNCHER)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
             String action = cfg.launchActions.get(pkg);
             if (action != null) {
