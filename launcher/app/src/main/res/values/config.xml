@@ -340,6 +340,10 @@
     <!-- XMB home: the wave's frames a second, 30 (smooth for its slow drift, half the GPU's work) or 60. The boot
          animation always runs at 60. Settings > Diagnostics switches it on the TV. Theme key xmb_wave_fps. -->
     <integer name="xmb_wave_fps">30</integer>
+    <!-- XMB home: Settings > Diagnostics (screen recording, the event log, the wave's rate, the startup animation
+         again), for chasing a problem; hidden for everyday use, and its switches then have no effect. Theme key
+         xmb_diagnostics. -->
+    <bool name="xmb_diagnostics">false</bool>
     <!-- XMB home: the status row's warnings, in amber: the remote's battery under this many percent, and free
          storage under this many megabytes. Theme keys xmb_low_battery and xmb_low_storage_mb. -->
     <integer name="xmb_low_battery">20</integer>

@@ -581,7 +581,7 @@ final class Config {
         return v instanceof String ? ((String) v).trim() : fallback;
     }
 
-    private static boolean bool(JSONObject o, String key, boolean fallback) {
+    static boolean bool(JSONObject o, String key, boolean fallback) {
         Object v = o.opt(key);
         return v instanceof Boolean ? (Boolean) v : fallback;
     }

@@ -442,8 +442,11 @@ final class XmbCatalog {
                 R.drawable.ic_xmb_dashboard_customize, null, ACTION_MENUS));
         settings.add(new Item("sys:status", ctx.getString(R.string.xmb_status_bar), ctx.getString(R.string.xmb_status_bar_detail),
                 ctx, R.drawable.ic_xmb_tune, null, ACTION_STATUS));
-        settings.add(new Item("sys:diagnostics", ctx.getString(R.string.xmb_diag), ctx.getString(R.string.xmb_diag_detail),
-                ctx, R.drawable.ic_xmb_monitor_heart, null, ACTION_DIAG));
+        // For chasing a problem only: hidden for everyday use (xmb_diagnostics).
+        if (cfg.xmb.diagnostics) {
+            settings.add(new Item("sys:diagnostics", ctx.getString(R.string.xmb_diag), ctx.getString(R.string.xmb_diag_detail),
+                    ctx, R.drawable.ic_xmb_monitor_heart, null, ACTION_DIAG));
+        }
 
         addNetwork(ctx, in.wifi, byCat.get(NETWORK));
 

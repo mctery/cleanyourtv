@@ -161,7 +161,8 @@ public class XmbActivity extends Activity {
         cfg = Config.load(this);
         XmbCatalog.invalidate();   // packages may have changed while no Home was listening
         bootDue = firstStartSinceBoot();
-        wave60 = prefs().getBoolean(PREF_WAVE60, cfg.xmb.waveFps >= 60);
+        // The wave's rate as Diagnostics left it, while Diagnostics is listed; else as configured.
+        wave60 = cfg.xmb.diagnostics ? prefs().getBoolean(PREF_WAVE60, cfg.xmb.waveFps >= 60) : cfg.xmb.waveFps >= 60;
         // restore_key_services: after a force stop, put the remote's accessibility helpers back, as the tile grid
         // does when it starts (ServiceRepair; on this branch the grid is switched off and never starts).
         if (cfg.restoreKeyServices) ServiceRepair.restore(this);
@@ -227,7 +228,7 @@ public class XmbActivity extends Activity {
         dlp.leftMargin = px(30);
         dlp.bottomMargin = px(30);
         root.addView(debugPanel, dlp);
-        setDebugPanel(prefs().getBoolean(PREF_DEBUG_PANEL, false));
+        setDebugPanel(cfg.xmb.diagnostics && prefs().getBoolean(PREF_DEBUG_PANEL, false));
 
         IntentFilter pkgs = new IntentFilter();
         pkgs.addAction(Intent.ACTION_PACKAGE_ADDED);

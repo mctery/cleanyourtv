@@ -60,7 +60,7 @@ ready what the menu shows (the glow behind every item, every banner handed to th
 smooth as any later. A key during it brings the menu at once. It plays when the box starts and when it wakes from standby after half a minute
 or more with Home in front (`xmb_boot_animation`: `power`, the default; `boot` for a start of the box only; `off`).
 It follows the box's own boot logo, which only a rooted box could change. Settings > Diagnostics > Play startup
-animation shows it at any time.
+animation shows it at any time, when Diagnostics is listed (below).
 
 ## Motion
 
@@ -148,6 +148,10 @@ A force-stopped app starts afresh when opened and stays asleep until then; apps 
 (Play Store, Play Movies) come back by themselves.
 
 ## Diagnostics
+
+Hidden for everyday use: `"xmb_diagnostics": true` in a theme (or `xmb_diagnostics` in config.xml) lists it again, for
+chasing a problem. While it is hidden its switches have no effect (the wave runs at `xmb_wave_fps`, no event log).
+The lines below still go to logcat as `TvHome.Debug`.
 
 Settings > Diagnostics plays the boot animation, switches the wave between 30 and 60 frames a second (60 is smoother
 and twice the GPU's work; `xmb_wave_fps` sets where it starts), records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
