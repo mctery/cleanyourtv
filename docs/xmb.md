@@ -21,7 +21,7 @@ The order of the apps is still `dock_apps` from `config.xml` or a theme.
 
 Unlike the main project's launcher, this branch asks for more permissions. Granted at install: `INTERNET` for the
 weather and the speed test, `BLUETOOTH` (up to Android 11) for the Bluetooth audio and remote battery icons,
-`QUERY_ALL_PACKAGES` to see an app Play Store is still downloading, and `KILL_BACKGROUND_PROCESSES` for Open apps on
+`QUERY_ALL_PACKAGES` to see an app Play Store is still downloading, and `KILL_BACKGROUND_PROCESSES` for Running apps on
 TVs that still let an app close another. Granted only over ADB (`mytv/install.sh`): `DUMP` and
 `PACKAGE_USAGE_STATS`, for the list of open apps (below). The remote-button helper may read the screen
 (`canRetrieveWindowContent`), for closing apps in Settings.
@@ -33,12 +33,16 @@ TVs that still let an app close another. Granted only over ADB (`mytv/install.sh
 | Left, Right | Change category |
 | Up, Down | Move in the category |
 | OK | Open |
-| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to another category, App info, and Close for an app left open |
+| Hold OK, or Menu | Options, a list floating beside the item as on the PSP: Open, Move to category, App info, and Close for a running app |
 | Back, Left | Closes the options (from Move, back to the options) |
 | Home | From an app: back to where you were. On the XMB: Video, first item |
 
 Home pressed on Home is a short pause for Android (pause, the intent, resume, in one go): the music, the wave and the
 status row keep going through it, and only what a longer pause stops (an app in front, the assistant) stops them.
+
+Every text follows the TV's language (Settings > Device preferences > Language), English and Thai on this branch;
+in another language the XMB's own texts are in English. The event log in Diagnostics is in the TV's language too, and
+in English in logcat. Long text fades out at the edge of its place instead of ending in an ellipsis.
 
 After 45 seconds without a key the menu fades out and only the wave stays (`xmb_idle_seconds` in config.xml or a
 theme; `0` keeps it up). Any key brings it back.
@@ -55,8 +59,8 @@ colour, the categories one after another from the selected one, the column's row
 ready what the menu shows (the glow behind every item, every banner handed to the GPU), so the first moves are as
 smooth as any later. A key during it brings the menu at once. It plays when the box starts and when it wakes from standby after half a minute
 or more with Home in front (`xmb_boot_animation`: `power`, the default; `boot` for a start of the box only; `off`).
-It follows the box's own boot logo, which only a rooted box could change. Settings > Diagnostics > Play the
-start-up animation shows it at any time.
+It follows the box's own boot logo, which only a rooted box could change. Settings > Diagnostics > Play startup
+animation shows it at any time.
 
 ## Motion
 
@@ -99,7 +103,7 @@ Android reports for a paired input device or, where it reports none (an LE remot
 S), the level Home reads from the remote's own Battery Service: at most every six hours, over a GATT connection of
 its own beside Android's, closed again at once.
 
-Settings > Status bar chooses what the row shows: a look (Standard, Simple, Everything, Clock only), each item
+Settings > Status bar chooses what the row shows: a style (Standard, Simple, All, Clock only), each item
 always, only when there is something to say, or hidden (OK goes round them and the row changes at once), the order
 (OK picks an item up, Up and Down move it, OK puts it down), and whether the clock and the row stay on the wave when
 the menu fades. The box's temperature, when the firmware lets apps read it, is one of the items (hidden by default;
@@ -109,19 +113,20 @@ From a computer: `"xmb_status": ["network=always", "weather=hidden"]`; a setup m
 
 ## Speed test
 
-Network > Test internet speed measures how fast the box downloads right now, for when a film stutters: OK starts it,
+Network > Internet speed test measures how fast the box downloads right now, for when a film stutters: OK starts it,
 the line under it counts up while it runs (and the status row shows the speed), and the result stays there, "115 Mb/s,
-ping 32 ms, 1 minute ago". It runs only when asked: four tiny requests for the round trip, then six seconds (at most
+latency 32 ms (1 minute ago)". It runs only when asked: four tiny requests for the round trip, then six seconds (at most
 90 MB) of download from Cloudflare's speed test service, `speed.cloudflare.com`, the one its own speed test page
-uses. The first second does not count (the connection getting up to speed), and the ping is the TCP round trip the
+uses. The first second does not count (the connection getting up to speed), and the latency is the TCP round trip the
 service measured itself. Home going behind an app stops it.
 
-## Open apps
+## Running apps
 
-Settings > Open apps says how many apps are left running behind Home and how much memory is free, "3 apps, 540 MB
-of 1.9 GB RAM free". OK lists them, the most memory first, each with what it holds ("Crossy Road, 513 MB"; one
-playing in the background says it is in use), under Close all apps. OK on an app closes it, Close all apps closes
-every one, and Hold OK on an open app in any category offers Close too.
+Settings > Running apps says how many apps are left running behind Home and how much memory is free, "3 apps
+running, 540 MB of 1.9 GB memory free". OK lists them, the most memory first, each with what it holds ("Crossy Road,
+513 MB"; one playing in the background says it is active), under Close all apps. OK on an app closes it, Close all apps closes
+every one, and Hold OK on a running app in any category offers Close too.
+Close all apps closes every app listed, active ones included.
 
 Android shows an app only its own processes, so the list is what the activity manager reports
 (`dumpsys activity processes`, read in the background in about 0.1 s). That takes `DUMP` and `PACKAGE_USAGE_STATS`,
@@ -146,7 +151,7 @@ A force-stopped app starts afresh when opened and stays asleep until then; apps 
 
 Settings > Diagnostics plays the boot animation, switches the wave between 30 and 60 frames a second (60 is smoother
 and twice the GPU's work; `xmb_wave_fps` sets where it starts), records the screen for 30 seconds or 2 minutes (Android asks each time; a red camera shows in
-the status row; the video goes to `Movies/XMB`, 1280x720) and switches on an event panel: the wave's frame rate and
+the status row; the video goes to `Movies/XMB`, 1280x720) and switches on an event log: the wave's frame rate and
 the latest of what changed the screen (a rebuild of the cross-bar and why and how long the load took, an icon added
 to or gone from the row, focus and screensaver changes, wave frames that came late). Its first line is the wave's cost:
 frames a second, the CPU time of a frame on its thread (and of the heights in it) and the GPU time of a frame (a
@@ -187,14 +192,14 @@ on, and it loops without a gap.
 TV apps go in Video, Music or Apps: known streaming and music apps by package name (`xmb_video_apps` and
 `xmb_music_apps` in `config.xml`, which a theme can replace), then the app's own `android:appCategory`, else Apps.
 The ready-made menus of your own (Games, Tools, Social...) collect apps by name the same way (`xmb_menu_apps`,
-`"tools:com.android.vending"`) and by their own category. Move an app with **Hold OK > Move to another category**, or list it in
+`"tools:com.android.vending"`) and by their own category. Move an app with **Hold OK > Move to category**, or list it in
 `xmb_categories` in `config.xml` or a theme's `config.json`: `"xmb_categories": ["com.example.tv=video"]`
 (`video`, `music` or `apps`; a move made on the TV wins). Inside a category the order is the tile grid's:
 `dock_apps`, then by name (an order saved earlier with the grid's Reorder counts until `dock_apps` changes).
 `hidden_apps`,
 `app_labels`, `app_banners` and `launch_actions` apply as on the grid.
 
-Settings holds TV settings, Display and sound, Apps, Open apps and the menu-sound switch. Network shows the connection with
+Settings holds TV settings, Display and sound, Apps, Running apps and the menu-sound switch. Network shows the connection with
 its address, the speed test and the Private DNS in use.
 
 ## Sounds

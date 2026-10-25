@@ -60,6 +60,20 @@ final class XmbStatusPrefs {
         return null;
     }
 
+    /** An item's name in the TV's language (xmb_st_<key>), as Settings > Status bar lists it. */
+    @android.annotation.SuppressLint("DiscouragedApi")
+    static String name(Context ctx, String key) {
+        int id = ctx.getResources().getIdentifier("xmb_st_" + key, "string", ctx.getPackageName());
+        return id != 0 ? ctx.getString(id) : key;
+    }
+
+    /** Several items' names, joined as the TV's language joins a list. */
+    static String names(Context ctx, java.util.Collection<String> keys) {
+        String out = null;
+        for (String k : keys) out = out == null ? name(ctx, k) : XmbCatalog.join(ctx, out, name(ctx, k));
+        return out != null ? out : "";
+    }
+
     final List<String> order;
     final Map<String, String> modes;
     final String preset;

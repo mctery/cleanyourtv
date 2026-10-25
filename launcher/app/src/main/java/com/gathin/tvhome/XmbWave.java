@@ -463,7 +463,7 @@ final class XmbWave implements GLSurfaceView.Renderer {
         float dt = lastNanos == 0 ? 0.016f : (now - lastNanos) / 1e9f;
         framesDrawn++;
         // A frame far later than the next one should have been: what the eye sees as the wave jumping.
-        if (lastNanos != 0 && dt > 0.12f && dt < 5f) XmbDebug.log(String.format(java.util.Locale.ROOT, "wave: frame %d ms late", (int) (dt * 1000 - 33)));
+        if (lastNanos != 0 && dt > 0.12f && dt < 5f) XmbDebug.log(R.string.xmb_log_wave_late, (int) (dt * 1000 - 33));
         lastNanos = now;
         if (dt > 0.1f || dt < 0) dt = 0.016f;   // clamp across pauses
         tSpline += dt;

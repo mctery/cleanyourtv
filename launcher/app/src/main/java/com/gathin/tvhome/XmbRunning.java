@@ -277,7 +277,7 @@ final class XmbRunning {
         return String.format(Locale.ROOT, "%d MB", Math.max(1, Math.round(mb)));
     }
 
-    /** The Settings item's line: how many apps are left open and the memory free, "3 apps, 1.1 GB of 1.8 GB free". */
+    /** The Settings item's line: how many apps run and the memory free, "3 apps running, 1.1 GB of 1.8 GB memory free". */
     static String line(Context ctx, Snapshot s) {
         if (s == null) {
             ActivityManager.MemoryInfo mem = new ActivityManager.MemoryInfo();
@@ -285,8 +285,9 @@ final class XmbRunning {
             return ctx.getString(R.string.xmb_running_ram, size(mem.availMem / 1024), size(mem.totalMem / 1024));
         }
         String ram = ctx.getString(R.string.xmb_running_ram, size(s.freeKb), size(s.totalKb));
-        if (s.apps == null) return ram + ", " + ctx.getString(R.string.xmb_running_no_access);
-        if (s.apps.isEmpty()) return ctx.getString(R.string.xmb_running_none) + ", " + ram;
-        return ctx.getResources().getQuantityString(R.plurals.library_app_count, s.apps.size(), s.apps.size()) + ", " + ram;
+        if (s.apps == null) return XmbCatalog.join(ctx, ram, ctx.getString(R.string.xmb_running_no_access));
+        String apps = s.apps.isEmpty() ? ctx.getString(R.string.xmb_running_none)
+                : ctx.getResources().getQuantityString(R.plurals.xmb_running_count, s.apps.size(), s.apps.size());
+        return XmbCatalog.join(ctx, apps, ram);
     }
 }

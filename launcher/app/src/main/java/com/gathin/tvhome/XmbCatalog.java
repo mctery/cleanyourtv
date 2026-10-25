@@ -574,12 +574,17 @@ final class XmbCatalog {
         return pm.resolveActivity(pinned, 0) != null ? pinned : null;
     }
 
-    /** A speed test's result as a line: the speed, the round trip and when, "48 Mb/s, ping 12 ms, 2 minutes ago". */
+    /** Two parts of a line joined as the TV's language joins them: "a, b" in English, "a b" in Thai (xmb_join). */
+    static String join(Context ctx, String a, String b) {
+        return ctx.getString(R.string.xmb_join, a, b);
+    }
+
+    /** A speed test's result as a line: the speed, the round trip and when, "48 Mb/s, latency 12 ms (2 minutes ago)". */
     static String speedResult(Context ctx, XmbSpeedTest.Result r) {
-        StringBuilder sb = new StringBuilder(XmbStatus.rate(r.mbps));
-        if (r.pingMs >= 0) sb.append(", ").append(ctx.getString(R.string.xmb_speedtest_ping, r.pingMs));
-        if (r.time > 0) sb.append(", ").append(LastOpened.describe(ctx, r.time));
-        return sb.toString();
+        String line = XmbStatus.rate(r.mbps);
+        if (r.pingMs >= 0) line = ctx.getString(R.string.xmb_speedtest_ping, line, r.pingMs);
+        if (r.time > 0) line = ctx.getString(R.string.xmb_speedtest_when, line, LastOpened.describe(ctx, r.time));
+        return line;
     }
 
     /** The connection (network name and address), the speed test and the Private DNS in use. */

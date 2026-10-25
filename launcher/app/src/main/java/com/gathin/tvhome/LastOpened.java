@@ -43,7 +43,8 @@ final class LastOpened {
         if (Locale.getDefault().getLanguage().equals("en") && (day.startsWith("Yesterday") || day.startsWith("Today"))) {
             day = Character.toLowerCase(day.charAt(0)) + day.substring(1);
         }
-        return day + ", " + DateUtils.formatDateTime(ctx, when, DateUtils.FORMAT_SHOW_TIME);
+        // Joined as the TV's language joins two parts (a comma in English, a space in Thai).
+        return ctx.getString(R.string.xmb_join, day, DateUtils.formatDateTime(ctx, when, DateUtils.FORMAT_SHOW_TIME));
     }
 
     private static SharedPreferences prefs(Context ctx) {

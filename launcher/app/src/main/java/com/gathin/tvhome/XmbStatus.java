@@ -363,7 +363,12 @@ final class XmbStatus {
             Set<String> gone = new HashSet<>(shown), added = new HashSet<>(now);
             gone.removeAll(now);
             added.removeAll(shown);
-            if (!shown.isEmpty()) XmbDebug.log("status row: +" + added + " -" + gone);
+            if (!shown.isEmpty()) {
+                String in = XmbStatusPrefs.names(act, added), out = XmbStatusPrefs.names(act, gone);
+                if (gone.isEmpty()) XmbDebug.log(R.string.xmb_log_status_added, in);
+                else if (added.isEmpty()) XmbDebug.log(R.string.xmb_log_status_removed, out);
+                else XmbDebug.log(R.string.xmb_log_status_changed, in, out);
+            }
         }
         shown.clear();
         shown.addAll(now);
@@ -421,7 +426,7 @@ final class XmbStatus {
                 part = low + "/" + level;
                 int res = BATTERY[batteryBlocks(level)];
                 View icon = low ? warnIcon(res) : icon(res);
-                return always ? pair(icon, level + "%") : icon;
+                return always ? pair(icon, percent(level)) : icon;
             }
             case "storage": {
                 long free = freeBytes();
@@ -602,7 +607,7 @@ final class XmbStatus {
                 tray.setAlpha(0.75f + 0.25f * glow);
             });
         }
-        downloadText.setText(progress + "%");
+        downloadText.setText(percent(progress));
         if (download.getParent() == null) download.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
         if (!downloadAnim.isStarted() && animating) downloadAnim.start();
         return download;
@@ -657,6 +662,11 @@ final class XmbStatus {
         }
         if (speedText != null) speedText.setText(rate(rate));
         if (busy != was) refresh();
+    }
+
+    /** A percentage written the way the TV's language writes one ("45%", "%45", "45 %"). */
+    private static String percent(int value) {
+        return java.text.NumberFormat.getPercentInstance().format(value / 100.0);
     }
 
     /** A rate as the row shows it: "4.5 Mb/s", "45 Mb/s", "1.2 Gb/s". */
@@ -838,7 +848,7 @@ final class XmbStatus {
     private void rebind() {
         if (!started || InputKeyService.running) return;
         Log.i(TAG, "remote-button helper not running; turning accessibility off and on");
-        XmbDebug.log("helper: rebinding accessibility");
+        XmbDebug.log(R.string.xmb_log_helper);
         if (ServiceRepair.rebind(act, handler)) handler.postDelayed(refreshRunnable, 6000);
         else refreshSoon();
     }

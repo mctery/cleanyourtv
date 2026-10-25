@@ -157,6 +157,7 @@ public class XmbActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        XmbDebug.init(this);
         cfg = Config.load(this);
         XmbCatalog.invalidate();   // packages may have changed while no Home was listening
         bootDue = firstStartSinceBoot();
@@ -181,7 +182,7 @@ public class XmbActivity extends Activity {
         statusPrefs = XmbStatusPrefs.load(this, cfg.xmb.status);
         status.setPrefs(statusPrefs);
         XmbRecorder.listener = (running, message) -> {
-            XmbDebug.log(running ? "recording started" : "recording ended");
+            XmbDebug.log(running ? R.string.xmb_log_recording_started : R.string.xmb_log_recording_ended);
             status.refresh();
             if (message != null) showToast(message);
         };
@@ -268,8 +269,11 @@ public class XmbActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             Uri data = intent.getData();
-            XmbDebug.log("package " + intent.getAction().replace("android.intent.action.PACKAGE_", "").toLowerCase(Locale.ROOT)
-                    + " " + (data != null ? data.getSchemeSpecificPart() : "?"));
+            String what = intent.getAction();
+            boolean replacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false);
+            XmbDebug.log(Intent.ACTION_PACKAGE_ADDED.equals(what) ? replacing ? R.string.xmb_log_app_updated : R.string.xmb_log_app_added
+                    : Intent.ACTION_PACKAGE_REMOVED.equals(what) ? R.string.xmb_log_app_removed : R.string.xmb_log_app_changed,
+                    data != null ? data.getSchemeSpecificPart() : "?");
             // An update sends REMOVED (replacing) then ADDED: only the second one matters.
             if (Intent.ACTION_PACKAGE_REMOVED.equals(intent.getAction())
                     && intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return;
@@ -290,7 +294,7 @@ public class XmbActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             dreaming = Intent.ACTION_DREAMING_STARTED.equals(intent.getAction());
-            XmbDebug.log(dreaming ? "screensaver started" : "screensaver ended");
+            XmbDebug.log(dreaming ? R.string.xmb_log_dream_started : R.string.xmb_log_dream_ended);
             if (dreaming) music.pause();
             else if (resumed) music.resume(500);
             if (waveView == null) return;
@@ -407,7 +411,7 @@ public class XmbActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        XmbDebug.log(hasFocus ? "window focus back" : "window focus lost");
+        XmbDebug.log(hasFocus ? R.string.xmb_log_focus_back : R.string.xmb_log_focus_lost);
         if (resumed && !dreaming) {
             if (hasFocus) music.resume(300);
             else if (!promptOpen) music.pause();
@@ -449,7 +453,10 @@ public class XmbActivity extends Activity {
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        XmbDebug.log("configuration changed");
+        XmbDebug.init(this);   // the event panel in the new language too
+        XmbDebug.log(R.string.xmb_log_config);
+        spaceDate();
+        tick();   // the date in the new language
         XmbCatalog.invalidate();   // a new language: the apps' labels
         dirty = true;
         shownSignature = null;
@@ -486,7 +493,7 @@ public class XmbActivity extends Activity {
         // back from one, Android starts Home before it hands over the intent, so stopped is already false here and
         // returnDue (set by onStart) tells the two apart.
         if (stopped || returnDue || introDue || intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
-        XmbDebug.log("Home pressed on Home");
+        XmbDebug.log(R.string.xmb_log_home_on_home);
         if (booting) {
             skipBoot();   // as any key does
             return;
@@ -598,7 +605,7 @@ public class XmbActivity extends Activity {
         String[] names = getResources().getStringArray(R.array.xmb_color_names);
         for (int i = 0; i < 12; i++) if (("month" + (i + 1)).equals(mode)) return names[i];
         int fixed = XmbAccent.fixedColor(mode);
-        if (fixed >= 0) return getString(R.string.xmb_color_custom) + " " + XmbAccent.hex(fixed);
+        if (fixed >= 0) return getString(R.string.xmb_color_custom_code, XmbAccent.hex(fixed));
         return getString(R.string.xmb_color_month);
     }
 
@@ -635,7 +642,10 @@ public class XmbActivity extends Activity {
         t.setTextColor(color);
         t.setIncludeFontPadding(false);
         t.setSingleLine(true);
-        t.setEllipsize(TextUtils.TruncateAt.END);
+        // Too long for its place: the end fades out, rather than an ellipsis added to the text.
+        t.setEllipsize(null);
+        t.setHorizontalFadingEdgeEnabled(true);
+        t.setFadingEdgeLength(px(48));
         return t;
     }
 
@@ -702,8 +712,7 @@ public class XmbActivity extends Activity {
         time.addView(clockColon);
         time.addView(clockM);
         dateView = text(regular, 21, INK_FAINT);
-        // Spaced like KittiwanaNotify's date, except in Thai, whose marks sit on the letters and must not be pulled apart.
-        dateView.setLetterSpacing("th".equals(Locale.getDefault().getLanguage()) ? 0f : 0.06f);
+        spaceDate();
         LinearLayout clock = new LinearLayout(this);
         clock.setOrientation(LinearLayout.VERTICAL);
         clock.setGravity(Gravity.END);
@@ -767,6 +776,11 @@ public class XmbActivity extends Activity {
         }
     };
 
+    /** Spaced like KittiwanaNotify's date, except in Thai, whose marks sit on the letters and must not be pulled apart. */
+    private void spaceDate() {
+        dateView.setLetterSpacing("th".equals(Locale.getDefault().getLanguage()) ? 0f : 0.06f);
+    }
+
     /** The colon blinks from bright, in one chain of steps: a second chain, a moment behind, made it flicker. */
     private void startBlink() {
         handler.removeCallbacks(blink);
@@ -812,7 +826,7 @@ public class XmbActivity extends Activity {
         if (sig.equals(shownSignature) && !catViews.isEmpty()) {
             // The same apps and items: only lines such as "last opened" may differ, and they change in place.
             refreshInPlace(loaded);
-            XmbDebug.log("reload: nothing to rebuild (load " + loadMs + " ms)");
+            XmbDebug.log(R.string.xmb_log_reload_same, loadMs);
             return;
         }
         if (structure.equals(shownStructure) && !catViews.isEmpty()) {
@@ -820,11 +834,14 @@ public class XmbActivity extends Activity {
             // they change where they are, cross-fading.
             refreshInPlace(loaded);
             shownSignature = sig;
-            XmbDebug.log("reload: changed in place (load " + loadMs + " ms)");
+            XmbDebug.log(R.string.xmb_log_reload_in_place, loadMs);
             return;
         }
-        XmbDebug.log("reload: rebuilt (" + loaded.size() + " categories" + (loaded.size() != cats.size() ? ", was " + cats.size() : "")
-                + ", load " + loadMs + " ms)");
+        if (!cats.isEmpty() && loaded.size() != cats.size()) {
+            XmbDebug.log(R.string.xmb_log_reload_rebuilt_was, loaded.size(), cats.size(), loadMs);
+        } else {
+            XmbDebug.log(R.string.xmb_log_reload_rebuilt, loaded.size(), loadMs);
+        }
         // Only now: an unchanged reload (an app updating in the background) leaves an item's options open.
         if (optionsFor != null) closeSide(true);
         // Moves rather than a jump: categories and rows that stay slide from where they were to their new places,
@@ -1063,7 +1080,7 @@ public class XmbActivity extends Activity {
         }
         if (changed || instant) buildColumn(fadeColumn);
         if (changed && !instant && !rows.isEmpty()) {
-            announce(cats.get(cat).label + ", " + selectedRow().item.title);
+            announce(XmbCatalog.join(this, cats.get(cat).label, selectedRow().item.title));
         }
     }
 
@@ -1662,7 +1679,7 @@ public class XmbActivity extends Activity {
         closeSide(true);
         settle();
         hideForIntro(false);
-        XmbDebug.log("boot animation");
+        XmbDebug.log(R.string.xmb_log_boot);
         wave.startBoot(mark -> {
             if (!booting) return;
             if (mark == XmbWave.LINES) sounds.play(XmbSounds.OPENING);
@@ -1807,7 +1824,7 @@ public class XmbActivity extends Activity {
         if (!resumed || pickerOpen()) return;
         idle = true;
         status.setAnimating(false);
-        XmbDebug.log("idle: menu fades");
+        XmbDebug.log(R.string.xmb_log_idle);
         long ms = reducedMotion ? 0 : IDLE_FADE_MS;
         if (statusPrefs.keepOnIdle) {
             // The clock and the status row stay, a little dimmer, over the wave; the cross-bar goes.
@@ -2413,7 +2430,7 @@ public class XmbActivity extends Activity {
                 0xFF000000 | XmbAccent.fromHueBrightness(adjHue, 0f), 0xFF000000 | XmbAccent.fromHueBrightness(adjHue, 1f)});
         b.setCornerRadius(px(2));
         brightBar.setBackground(b);
-        adjHex.setText(previewColor + "      " + getString(R.string.xmb_color_hint));
+        adjHex.setText(getString(R.string.xmb_color_hint, previewColor));
         setSelectedDetail(colorName(previewColor));
     }
 
@@ -2486,8 +2503,7 @@ public class XmbActivity extends Activity {
     }
 
     private String itemName(String key) {
-        int id = getResources().getIdentifier("xmb_st_" + key, "string", getPackageName());
-        return id != 0 ? getString(id) : key;
+        return XmbStatusPrefs.name(this, key);
     }
 
     private static int itemIcon(String key) {
@@ -2604,13 +2620,14 @@ public class XmbActivity extends Activity {
     private void runSpeedTest() {
         if (XmbSpeedTest.running()) return;
         setItemDetail(XmbCatalog.SPEEDTEST, getString(R.string.xmb_speedtest_start));
-        XmbDebug.log("speed test started");
+        XmbDebug.log(R.string.xmb_log_speed_started);
         XmbSpeedTest.start(this, (running, r) -> {
             if (running) {
                 setItemDetail(XmbCatalog.SPEEDTEST, getString(R.string.xmb_speedtest_running, XmbStatus.rate(r.mbps)));
                 return;
             }
-            XmbDebug.log(r != null ? "speed test: " + XmbStatus.rate(r.mbps) : "speed test failed");
+            if (r != null) XmbDebug.log(R.string.xmb_log_speed_result, XmbStatus.rate(r.mbps));
+            else XmbDebug.log(R.string.xmb_log_speed_failed);
             if (!resumed) return;
             showToast(r != null ? XmbCatalog.speedResult(this, r) : getString(R.string.xmb_speedtest_failed));
             reload();   // the kept result becomes the item's line (in place: the line is not part of the signature)
@@ -2685,8 +2702,9 @@ public class XmbActivity extends Activity {
         art.add(null);
         for (XmbRunning.App a : s.apps) {
             // Its memory once Android has measured it (a process just started has no figure yet).
-            String text = appTitle(a.pkg) + (a.kb > 0 ? ", " + XmbRunning.size(a.kb) : "");
-            if (!a.closable()) text += ", " + getString(R.string.xmb_running_in_use);
+            String text = appTitle(a.pkg);
+            if (a.kb > 0) text = XmbCatalog.join(this, text, XmbRunning.size(a.kb));
+            if (!a.closable()) text = XmbCatalog.join(this, text, getString(R.string.xmb_running_in_use));
             texts.add(text);
             icons.add(R.drawable.ic_xmb_apps);
             art.add(a.icon);
@@ -2712,7 +2730,7 @@ public class XmbActivity extends Activity {
             pkgs.add(a.pkg);
             titles.add(appTitle(a.pkg));
         }
-        XmbDebug.log("closing " + TextUtils.join(", ", pkgs));
+        XmbDebug.log(R.string.xmb_log_closing, TextUtils.join(", ", pkgs));
         boolean helper = XmbCloser.close(this, which, titles, (stopped, cancelled) -> {
             closed = which;
             closedAt = at;
@@ -2798,7 +2816,7 @@ public class XmbActivity extends Activity {
             actions.add(() -> {
                 wave60 = !wave60;
                 prefs().edit().putBoolean(PREF_WAVE60, wave60).apply();
-                XmbDebug.log("wave at " + (wave60 ? 60 : 30) + " frames a second");
+                XmbDebug.log(R.string.xmb_log_wave_fps, wave60 ? 60 : 30);
                 sideQuiet = true;
                 openDiagnostics(self60 - 1);
             });
@@ -2842,7 +2860,7 @@ public class XmbActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != REQ_RECORD) return;
         if (resultCode == RESULT_OK && data != null) XmbRecorder.start(this, resultCode, data, recordSeconds);
-        else XmbDebug.log("recording not allowed");
+        else XmbDebug.log(R.string.xmb_log_recording_denied);
     }
 
     /** The event panel: the wave's frame rate and the newest lines of XmbDebug, bottom left over everything. */
@@ -2876,12 +2894,11 @@ public class XmbActivity extends Activity {
         Runtime rt = Runtime.getRuntime();
         StringBuilder sb = new StringBuilder();
         if (wave != null) {
-            sb.append(String.format(Locale.ROOT, "wave %d fps  cpu %.1f ms (heights %.1f)", waveFps, wave.cpuMs, wave.splineMs));
-            if (wave.gpuMs >= 0) sb.append(String.format(Locale.ROOT, "  gpu %.1f ms", wave.gpuMs));
-            sb.append('\n');
+            sb.append(wave.gpuMs >= 0 ? getString(R.string.xmb_panel_wave_gpu, waveFps, wave.cpuMs, wave.splineMs, wave.gpuMs)
+                    : getString(R.string.xmb_panel_wave, waveFps, wave.cpuMs, wave.splineMs)).append('\n');
         }
-        sb.append(String.format(Locale.ROOT, "heap %d/%d MB   %s", (rt.totalMemory() - rt.freeMemory()) >> 20,
-                rt.maxMemory() >> 20, idle ? "idle" : "awake"));
+        sb.append(getString(R.string.xmb_panel_memory, (rt.totalMemory() - rt.freeMemory()) >> 20, rt.maxMemory() >> 20,
+                getString(idle ? R.string.xmb_panel_idle : R.string.xmb_panel_awake)));
         for (String line : XmbDebug.recent(8)) sb.append('\n').append(line);
         debugPanel.setText(sb);
     }
