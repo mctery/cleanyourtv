@@ -89,12 +89,15 @@ Left of the clock, white icons with a soft glow, no frames. Always there, from t
 
 Only while there is something to say, further left: the box's download speed (a gauge and "45 Mb/s", every app
 together) while something downloads faster than 2 Mb/s, a download arrow with its progress while an app installs,
-a USB drive, Bluetooth headphones or a speaker. Leftmost, in amber: the remote's battery under 20% (a battery on its
-side in four blocks, as on the PSP and PS3), storage under
-500 MB, ADB still on (USB debugging, which on many boxes also opens ADB on the network), and the remote-button
-helper not running. For the last one Home first tries to fix it itself: 15 seconds after it starts, if the helper
-should run and does not, it turns accessibility off and on once (with `WRITE_SECURE_SETTINGS`, as
-`restore_key_services`), which binds a helper Android still holds as crashed.
+a USB drive, Bluetooth headphones or a speaker, and in amber the remote's battery under 20% (a battery on its side in
+four blocks, as on the PSP and PS3), storage under 500 MB, ADB still on (USB debugging, which on many boxes also opens
+ADB on the network) and the remote-button helper not running. Each comes in at the far left, the newest leftmost
+(several at once in the order set), so nothing already on the row moves: a download that starts leaves the weather,
+the Wi-Fi and the warnings where they are. When one goes, only the newer ones left of it close up.
+
+For the helper Home first tries a fix itself: 15 seconds after it starts, if the helper should run and does not, it
+turns accessibility off and on once (with `WRITE_SECURE_SETTINGS`, as `restore_key_services`), which binds a helper
+Android still holds as crashed.
 
 The weather and the dust come from [Open-Meteo](https://open-meteo.com/) (no account or key; its forecast and
 air-quality services) for the box's own last known location, rounded to 0.01 degree (about 1 km) before it is sent. It is read at most every 30 minutes, only while
@@ -105,7 +108,8 @@ its own beside Android's, closed again at once.
 
 Settings > Status bar chooses what the row shows: a style (Standard, Simple, All, Clock only), each item
 always, only when there is something to say, or hidden (OK goes round them and the row changes at once), the order
-(OK picks an item up, Up and Down move it, OK puts it down), and whether the clock and the row stay on the wave when
+(OK picks an item up, Up and Down move it, OK puts it down; it places the items shown always, and those shown when
+needed only among ones that come together), and whether the clock and the row stay on the wave when
 the menu fades. The box's temperature, when the firmware lets apps read it, is one of the items (hidden by default;
 not listed on a TV whose firmware keeps it from apps, as the Mi Box S does). The dust shows always by default, or
 only from orange up; the speed only while something downloads by default, or always.

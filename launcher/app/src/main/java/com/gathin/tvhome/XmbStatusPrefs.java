@@ -4,6 +4,7 @@ import android.content.Context;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -14,7 +15,8 @@ import java.util.Map;
  * What the status row shows and in which order: each item always, only when there is something to say, or never,
  * plus a few ready-made looks (presets) and whether the clock and the row stay on screen while the menu has faded
  * to the wave. Set on the TV (Settings > Status bar) or in config.xml / a theme as xmb_status, "key=mode" in order;
- * a setup made on the TV wins. Pure data, tested on the JVM (XmbStatusPrefsTest).
+ * a setup made on the TV wins. The order places the items shown always, by the clock; those shown when needed come in
+ * at the far left as they appear (rowOrder). Pure data, tested on the JVM (XmbStatusPrefsTest).
  */
 final class XmbStatusPrefs {
     static final String ALWAYS = "always", AUTO = "auto", HIDDEN = "hidden";
@@ -95,6 +97,24 @@ final class XmbStatusPrefs {
     String mode(String key) {
         String m = modes.get(key);
         return m != null ? m : HIDDEN;
+    }
+
+    /**
+     * Where the row puts what it shows, left to right: the items shown when needed as they came in, then those shown
+     * always in the order set. passing is the row's memory of the former, kept up to date here: the ones gone are
+     * dropped and new ones put first (several at once in the order set). The row ends at the clock, so an item that
+     * comes moves nothing already there, and one that goes moves only the newer ones left of it.
+     */
+    static List<String> rowOrder(List<String> shown, Collection<String> always, List<String> passing) {
+        List<String> now = new ArrayList<>();
+        for (String k : shown) if (!always.contains(k)) now.add(k);
+        passing.retainAll(now);
+        List<String> came = new ArrayList<>(now);
+        came.removeAll(passing);
+        passing.addAll(0, came);
+        List<String> out = new ArrayList<>(passing);
+        for (String k : shown) if (always.contains(k)) out.add(k);
+        return out;
     }
 
     /**

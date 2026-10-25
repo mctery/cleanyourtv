@@ -308,6 +308,11 @@ final class XmbStatus {
         String now0 = sig.toString();
         if (now0.equals(shownState) && row.getChildCount() == keys.size()) return;
         shownState = now0;
+        // Those shown always stand by the clock; those shown when needed come in at the far left, so the row's other
+        // items never move for one (a download, the network speed).
+        Set<String> always = new HashSet<>();
+        for (String key : keys) if (XmbStatusPrefs.ALWAYS.equals(setup.mode(key))) always.add(key);
+        List<String> order = XmbStatusPrefs.rowOrder(keys, always, passing);
 
         // Moves as on the PS3, never a jump: an item that goes fades out where it was, one that comes glows up, one
         // that changes (Wi-Fi strength, the temperature, the dust's colour) cross-fades, and the others slide to
@@ -318,7 +323,7 @@ final class XmbStatus {
         ViewGroupOverlay overlay = flip ? ((ViewGroup) row.getRootView()).getOverlay() : null;
         Map<String, View> next = new LinkedHashMap<>();
         List<View> coming = new ArrayList<>(), changing = new ArrayList<>();
-        for (String key : keys) {
+        for (String key : order) {
             View old = onRow.get(key), v = built.get(key);
             if (old != null && TextUtils.equals(partOf.get(key), parts.get(key))) {
                 v = old;   // as it was: the same view stays
@@ -335,6 +340,7 @@ final class XmbStatus {
         }
         row.removeAllViews();
         int lastKind = -1;
+        boolean lastPassing = false;
         for (Map.Entry<String, View> e : next.entrySet()) {
             View v = e.getValue();
             if (v.getParent() != null) {
@@ -346,12 +352,16 @@ final class XmbStatus {
                 v.setScaleY(1f);
             }
             int kind = XmbStatusPrefs.item(e.getKey()).kind;
+            boolean isPassing = !always.contains(e.getKey());
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
             // From the item's own base (an icon is pulled in by its glow's padding, a pair is not), never added on top
-            // of an earlier refresh's gap: the download item is reused.
-            lp.leftMargin = (v instanceof ImageView ? -u.px(PAD) : 0) + (lastKind >= 0 ? u.px(kind == lastKind ? GAP : GROUP_GAP) : 0);
+            // of an earlier refresh's gap: the download item is reused. The wider gap between kinds, and between what
+            // comes and goes and what is always there.
+            boolean together = kind == lastKind && isPassing == lastPassing;
+            lp.leftMargin = (v instanceof ImageView ? -u.px(PAD) : 0) + (lastKind >= 0 ? u.px(together ? GAP : GROUP_GAP) : 0);
             row.addView(v, lp);
             lastKind = kind;
+            lastPassing = isPassing;
         }
         if (flip) {
             row.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
@@ -407,6 +417,8 @@ final class XmbStatus {
 
     /** The items on the row by key, in order, and what each showed: kept, changed, new and gone are told apart. */
     private final Map<String, View> onRow = new LinkedHashMap<>();
+    /** The items shown when needed, as they stand on the row from the left: each new one came in at the far left. */
+    private final List<String> passing = new ArrayList<>();
     private final Map<String, String> partOf = new HashMap<>();
     private static final android.view.animation.PathInterpolator EASE =
             new android.view.animation.PathInterpolator(0.16f, 1f, 0.3f, 1f);

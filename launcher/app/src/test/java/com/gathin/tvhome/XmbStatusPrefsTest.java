@@ -2,8 +2,10 @@ package com.gathin.tvhome;
 
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -11,6 +13,36 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class XmbStatusPrefsTest {
+    @Test public void whatComesWhenNeededGoesInAtTheLeftAndMovesNothing() {
+        List<String> always = Arrays.asList("weather", "network");
+        List<String> passing = new ArrayList<>();
+        assertEquals(Arrays.asList("adb", "weather", "network"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("adb", "weather", "network"), always, passing));
+        // A download: in at the far left, ADB and the weather stay where they are.
+        assertEquals(Arrays.asList("download", "adb", "weather", "network"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("adb", "download", "weather", "network"), always, passing));
+        // Then the speed, left of the download, although set between the weather and the network.
+        assertEquals(Arrays.asList("speed", "download", "adb", "weather", "network"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("adb", "download", "weather", "speed", "network"), always, passing));
+        // The download done: only the speed, left of it, closes up.
+        assertEquals(Arrays.asList("speed", "adb", "weather", "network"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("adb", "weather", "speed", "network"), always, passing));
+        assertEquals(Arrays.asList("adb", "weather", "network"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("adb", "weather", "network"), always, passing));
+    }
+
+    @Test public void severalAtOnceKeepTheOrderSetAndAlwaysWinsOverPassing() {
+        List<String> passing = new ArrayList<>();
+        assertEquals(Arrays.asList("battery", "storage", "weather"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("battery", "storage", "weather"), Collections.singletonList("weather"), passing));
+        // The speed set to always: it joins the clock's side in the order set, and leaves the passing ones.
+        passing.add("speed");
+        assertEquals(Arrays.asList("weather", "speed", "network"),
+                XmbStatusPrefs.rowOrder(Arrays.asList("weather", "speed", "network"),
+                        Arrays.asList("weather", "speed", "network"), passing));
+        assertTrue(passing.isEmpty());
+    }
+
     @Test public void standardIsTheShippedRow() {
         XmbStatusPrefs p = XmbStatusPrefs.fromConfig(Collections.emptyList());
         assertEquals(XmbStatusPrefs.STANDARD, p.preset);
