@@ -607,6 +607,10 @@ final class XmbStatus {
             box.setLayoutParams(lp);
             download = pair(box, "");
             downloadText = (TextView) ((ViewGroup) download).getChildAt(1);
+            // As wide as 100%: the items left of it keep still as the figure gains a digit (9% to 10%).
+            ViewGroup.LayoutParams tlp = downloadText.getLayoutParams();
+            tlp.width = (int) Math.ceil(downloadText.getPaint().measureText(percent(100))) + 1;
+            downloadText.setLayoutParams(tlp);
             downloadAnim = ValueAnimator.ofFloat(0f, 1f);
             downloadAnim.setDuration(1600);
             downloadAnim.setRepeatCount(ValueAnimator.INFINITE);
