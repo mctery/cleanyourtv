@@ -22,7 +22,7 @@ This directory contains the debloat configuration and documentation for the **TC
 - `com.tcl.waterfall.overseas` — TCL web-video feed / TCL Channel
 - `com.tcl.esticker` — Store demo sticker app
 - `com.tcl.copydatatotv` — Copy data promo utility
-- `com.tcl.t_solo` — TCL promotional service
+- `com.tcl.t_solo` — T-Solo "listen alone": TV sound to Bluetooth headphones
 - `com.internet.tvbrowser` — Preloaded browser
 - `com.tcl.browser` — TCL Browser
 - `com.google.android.feedback` — User feedback collector
@@ -50,7 +50,7 @@ python tools/tv.py "pm enable com.tcl.usercenter"
 ### Restore All Debloated Packages
 Run the restore script:
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "$env:TV_HOST='192.168.1.3'; tools\restore.ps1 examples\tcl-32l5a\debloat.txt"
+powershell -ExecutionPolicy Bypass -File tools\restore.ps1 -TvHost <tv ip> examples\tcl-32l5a\debloat.txt
 ```
 
 ---
@@ -64,7 +64,8 @@ powershell -ExecutionPolicy Bypass -File launcher\build-and-install.ps1 -TvHost 
 
 If Gradle does not find a JDK 17, point `JAVA_HOME` at one first:
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "$env:JAVA_HOME='C:\Users\Anas\.jdks\jbr-17.0.14'; $env:TV_HOST='192.168.1.3'; & 'launcher\build-and-install.ps1' -InputKeyService -HomeKeyService"
+$env:JAVA_HOME='<path to JDK 17>'
+powershell -ExecutionPolicy Bypass -File launcher\build-and-install.ps1 -TvHost <tv ip> -InputKeyService -HomeKeyService
 ```
 
 ---

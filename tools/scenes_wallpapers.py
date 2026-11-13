@@ -17,7 +17,10 @@ wallpaper_captions shows under the top-right pills; tests/test_scenes_captions.p
 import math
 import os
 import random
+import shutil
+import stat
 import sys
+import tempfile
 
 W, H = 1280, 720
 
@@ -388,7 +391,8 @@ def target(argv):
     '--help' in whatever directory the reader stood in and filled it with 14 SVGs, and said so with exit 0.
     So -h/--help now prints this script's own note and writes nothing, any other leading dash is refused
     ('--out x' would otherwise become a folder called '--out'), and a path that exists but is not a folder
-    is named instead of ending in os.makedirs' FileExistsError traceback.
+    is named instead of ending in os.makedirs' FileExistsError traceback. An empty word is not a folder
+    either: os.makedirs('') is a FileNotFoundError whose line names nothing the reader typed.
     """
     if argv in (["-h"], ["--help"]):
         print((__doc__ or USAGE).strip())
@@ -397,6 +401,10 @@ def target(argv):
         print(USAGE, file=sys.stderr)
         sys.exit(2)
     out = argv[0]
+    if not out:
+        print("scenes_wallpapers.py: the folder to write the scenes into was given as an empty "
+              f"argument.\n{USAGE}", file=sys.stderr)
+        sys.exit(2)
     if out.startswith("-"):
         print(f"scenes_wallpapers.py takes one folder and no options, so {out} is not one.\n{USAGE}",
               file=sys.stderr)
@@ -407,10 +415,58 @@ def target(argv):
     return out
 
 
-if __name__ == "__main__":
-    out = target(sys.argv[1:])
-    os.makedirs(out, exist_ok=True)
-    for name, scene in SCENES:
-        with open(os.path.join(out, f"{name}.svg"), "w") as f:
-            f.write(scene())
+def write(out):
+    """The 14 SVGs into `out`, refusing a folder it cannot create or a file it cannot write.
+
+    Neither used to be answered: a path through a file ('README.md/scenes') ended in os.makedirs'
+    NotADirectoryError, and a folder sitting where one scene's name goes ended in IsADirectoryError
+    from open(), each a traceback with exit 1 - the code a run that wrote nothing returns. Both are
+    the reader's own argument or their own folder, so they are answered in the words the other
+    refusals here use, before anything else is written; the second says how much did land, so a
+    half-filled folder cannot be mistaken for the 14 the script promises.
+    """
+    try:
+        os.makedirs(out, exist_ok=True)
+    except OSError as e:
+        print(f"scenes_wallpapers.py: cannot create {out}: {e.strerror or e}. Nothing was written.",
+              file=sys.stderr)
+        sys.exit(2)
+    for done, (name, scene) in enumerate(SCENES):
+        path = os.path.join(out, f"{name}.svg")
+        published = False
+        try:
+            text = scene()
+            target = os.path.realpath(path)   # Follow destination symlinks as open(path, "w") did.
+            try:
+                previous = os.stat(target)
+            except FileNotFoundError:
+                previous = None
+            if previous is not None:
+                if not stat.S_ISREG(previous.st_mode):
+                    raise OSError("the destination is not a regular file")
+                if previous.st_nlink > 1:
+                    raise OSError("cannot safely replace a hard-linked destination")
+                # Rename alone can bypass a read-only file; check write access without truncating it.
+                os.close(os.open(target, os.O_WRONLY))
+            with tempfile.TemporaryDirectory(prefix=".scenes-", dir=os.path.dirname(target)) as staging:
+                part = os.path.join(staging, os.path.basename(target))
+                with open(part, "w") as f:
+                    f.write(text)
+                if previous is not None:
+                    shutil.copymode(target, part)
+                os.replace(part, target)
+                published = True
+        except OSError as e:
+            if published:
+                print(f"warning: {path} was written, but staging cleanup failed: {e.strerror or e}",
+                      file=sys.stderr)
+                continue
+            print(f"scenes_wallpapers.py: cannot write {path}: {e.strerror or e}", file=sys.stderr)
+            print(f"stopped after {done} of {len(SCENES)} scenes, which are left in {out} as they "
+                  "are.", file=sys.stderr)
+            sys.exit(2)
     print(len(SCENES), "scenes written to", out)
+
+
+if __name__ == "__main__":
+    write(target(sys.argv[1:]))

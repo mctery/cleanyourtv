@@ -38,16 +38,18 @@ third-party apps do not hold.
 left the TV with `mCurrentFocus=null` and no usable window until PatchWall was re-enabled:
 
 ```bash
-"$PY" -I tools/tv.py 'pm enable --user 0 com.mitv.tvhome'
-"$PY" -I tools/tv.py 'cmd package set-home-activity --user 0 com.mitv.tvhome/.MainActivityUserMode'
+tools/venv/bin/python -I tools/tv.py 'pm enable --user 0 com.mitv.tvhome'
+tools/venv/bin/python -I tools/tv.py 'cmd package set-home-activity --user 0 com.mitv.tvhome/.MainActivityUserMode'
 ```
 
 On HyperOS TV 2 and on other HyperOS TV 3 sets (MiTV-ASTR0, MiTV-MFFU0) the route that worked is the
 allowlist identity, `-PlauncherApplicationId=com.ts.launcher`, installed **before** PatchWall is disabled
 ([`xiaomi-mitv-astr0-blueplanet.md`](xiaomi-mitv-astr0-blueplanet.md),
 [`xiaomi-mitv-mftr0-debloat-home.md`](xiaomi-mitv-mftr0-debloat-home.md)). It was not tried on this OS3.0.28 set,
-so whether it gets past the `mAlways` preference and the `HOME_STATE` permission is open. Try it with ADB open
-and the two recovery lines above at hand.
+so whether it gets past the `mAlways` preference and the `HOME_STATE` permission is open here. On a third
+unit of this model on `OS3.0.103.0.UFTMATV` it took Home and survived a reboot; see
+[the model note](xiaomi-mitv-mftr0-debloat-home.md#a-third-unit-on-os30103-the-allowlist-route-works). Keep the
+two recovery lines above at hand.
 
 ## Other OS3.0 limits
 
@@ -61,6 +63,10 @@ and the two recovery lines above at hand.
 - **Locked verified boot.** `/proc/cmdline` has `androidboot.vbmeta.device_state=locked` and
   `androidboot.veritymode=enforcing`; there are A/B boot slots but no `bootctl` and no fastboot, so going back to
   OS2.0 is not possible from the shell.
+- **关机 in the power menu is standby, not a power-off.** On `OS3.0.106.0.UFTMATV` the vendor middleware logs
+  `Set enter_standby:1`, `uptime` does not reset and ADB still answers afterwards, so a symptom that clears only
+  on a real cold boot needs a reboot or the plug, not 关机. Noted while chasing the standby-LED report in
+  [#2948](https://github.com/Gathin23/cleanyourtv/issues/2948), whose cause is still open.
 
 ## A second set on the same build
 

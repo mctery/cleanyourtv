@@ -870,7 +870,7 @@ final class XmbStatus {
      * a moment later), then one try at rebinding it (ServiceRepair.rebind); the icon shows only if that fails too.
      */
     private boolean helperDown() {
-        if (InputKeyService.running) return false;
+        if (InputKeyService.running != null) return false;
         if (!ServiceRepair.expected(act, InputKeyService.class)) return false;
         long age = SystemClock.elapsedRealtime() - createdAt;
         if (age < HELPER_GRACE_MS) {
@@ -889,7 +889,7 @@ final class XmbStatus {
     private final Runnable rebindRunnable = this::rebind;
 
     private void rebind() {
-        if (!started || InputKeyService.running) return;
+        if (!started || InputKeyService.running != null) return;
         Log.i(TAG, "remote-button helper not running; turning accessibility off and on");
         XmbDebug.log(R.string.xmb_log_helper);
         if (ServiceRepair.rebind(act, handler)) handler.postDelayed(refreshRunnable, 6000);

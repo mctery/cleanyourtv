@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Writes the TV tables, the brand line and the counts from each examples/<folder>/tv.json.
+"""Writes the TV tables, the brand grid and the counts from each examples/<folder>/tv.json.
 
-    gen_tables.py [--root DIR]                 rewrite README.md, examples/README.md, tools/readme_stats.py
+    gen_tables.py [--root DIR]                 rewrite README.md, the translated READMEs that carry its brand
+                                               block, examples/README.md and tools/readme_stats.py
     gen_tables.py --check                      write nothing; exit 1 when a file is out of date
     gen_tables.py --font Fredoka.ttf           also redraw docs/stats.png and docs/card.jpg if a count moved
     gen_tables.py --adopt PATCH                write tv.json for folders that have none, from the table rows
@@ -17,27 +18,51 @@ conflict. Now a list PR adds only its own folder, with a tv.json beside debloat.
       "notes": "What the list disables and keeps, one line of Markdown (links relative to examples/)"
     }
 
-and a maintainer runs this after merging. "tv" and "os" fill both tables, "notes" the examples/README.md
-one, "brand" the brand line under the README table (a brand whose every TV says "projector" goes on the
-projector line). One optional key: "readme_os", the README's OS cell when it is not "os". Both tables list
-the folders in the same order, alphabetical by "tv" (case ignored), so a brand's models sit together.
+and a maintainer runs this after merging. "tv" and "os" fill the tables, "notes" the examples/README.md
+one, "brand" the brand grid in the README (a brand whose every TV says "projector" goes on the projector
+line). One optional key: "readme_os", a README table's OS cell when it is not "os". The tables list the
+folders in the same order, alphabetical by "tv" (case ignored), so a brand's models sit together.
 
-The tables live between <!-- tv-table:start ... --> and <!-- tv-table:end --> lines, the brand line
-between <!-- tv-brands:start ... --> and <!-- tv-brands:end -->; everything outside them is hand-written.
+The full table lives in examples/README.md between <!-- tv-table:start ... --> and <!-- tv-table:end -->.
+README.md has no table of its own: its brand grid (the TOP brands with the most lists, linked to the site's
+search, and the rest in a <details>) sits between <!-- tv-brands:start ... --> and <!-- tv-brands:end -->.
+README.nl.md, README.de.md, README.uk.md and README.tr.md carry the same brand block and the same counts in
+their own words ("N tv-modellen · B merken · L talen · ", "N TV-Modelle · B Marken · L Sprachen · ",
+and the Ukrainian and Turkish words in TRANSLATIONS below), and a README that still has tv-table markers
+gets the short table there too. Everything outside the markers is hand-written.
 The counts are the card's alt text ("N TV models · B brands · L languages · "), the "| **L languages** |"
 feature row and STATS in tools/readme_stats.py. Exit codes: 0 up to date (or written), 1 out of date
-(--check), 2 a tv.json or a marker is wrong.
+(--check), or a count moved and --font could not draw one of the pictures (the tables are written; the
+picture is not - redraw it before committing). --font draws with the checkout's tools/venv/bin/python when
+that venv has Pillow, the interpreter docs/workflows/press.md installs it into and the one the two card
+scripts' own usage lines name; a checkout with no such venv uses the Python that ran this script.
+2 what it was given cannot be read: a tv.json, a marker, or the path in --root or --adopt (nothing is written
+then), or a page or a tv.json it cannot write: the pages
+are written beside themselves and replaced only once all of them are, so such a run leaves every page with
+the text it had and names the one that stopped it (the tv.json files an --adopt run already wrote stay
+written), or an --adopt row main has changed since the PR was written: the tv.json files the patch did
+apply are on disk and the message names them, the tables are not regenerated, so that row is moved into
+its tv.json by hand and the script run again.
 """
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 KEYS = ("tv", "os", "brand", "notes")
 OPTIONAL = ("readme_os",)
-WIDTH = 120  # the brand line wraps before this many characters
+WIDTH = 120  # the brand lines under the grid wrap before this many characters
+TOP = 30  # brands in the README's grid
+COLUMNS = 6  # the grid's columns: 30 brands make 5 rows
+SEARCH = "https://cleanyour.tv/tvs?q="  # the site's TV search; a brand cell links to its results
+# The three words README.md states its counts in, in the order the card's alt text gives them.
+WORDS = ("TV models", "brands", "languages")
 README_HEADER = ["| TV | OS |", "|---|---|"]
 EXAMPLES_HEADER = ["| Folder | TV | OS | Notes |", "|---|---|---|---|"]
 SOURCE = "generated by tools/gen_tables.py from examples/*/tv.json; edit those, not this"
@@ -46,7 +71,7 @@ LINK = re.compile(r"\]\(([^)\s]+)\)")
 
 
 class Problem(Exception):
-    """A tv.json or a marker the script cannot work with; the message says which and why."""
+    """A tv.json, a marker or a page the script cannot work with or write; the message says which and why."""
 
 
 def folders(root):
@@ -64,18 +89,29 @@ def check_cell(where, key, value):
     return out
 
 
-def load(root):
-    """[(folder name, tv.json dict)] for every folder in examples/; raises Problem listing every bad file."""
+def load(root, allow_missing=False):
+    """[(folder name, tv.json dict)] for every folder in examples/; raises Problem listing every bad file.
+
+    `--adopt` writes the tv.json of a folder that has none, so it reads the checkout with allow_missing:
+    a folder without one is not a problem there, while every file that is there is judged by these same
+    rules before the patch is applied.
+    """
     problems, entries = [], []
     for folder in folders(root):
         where = f"examples/{folder.name}/tv.json"
         path = folder / "tv.json"
         if not path.is_file():
-            problems.append(f"{where} is missing: it holds the folder's row in the README tables "
+            if allow_missing and not path.exists():
+                continue
+            what = "is missing" if not path.exists() else "is not a file"
+            problems.append(f"{where} {what}: it holds the folder's row in the README tables "
                             f"(see CONTRIBUTING.md, step 4)")
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+        except OSError as e:
+            problems.append(f"{where}: cannot read ({e.strerror or e})")
+            continue
         except ValueError as e:
             problems.append(f"{where}: not valid JSON ({e})")
             continue
@@ -90,7 +126,9 @@ def load(root):
         if "readme_os" in data:
             problems += check_cell(where, "readme_os", data["readme_os"])
         for key in ("tv", "notes"):
-            for target in LINK.findall(data.get(key) or ""):
+            value = data.get(key)
+            # A value that is not a string has no link to read, and check_cell has already said it is wrong.
+            for target in LINK.findall(value if isinstance(value, str) else ""):
                 if re.match(r"^(https?:|mailto:|#)", target):
                     continue
                 if not (root / "examples" / target.split("#")[0]).exists():
@@ -143,23 +181,44 @@ def brands(entries):
 
 
 def brand_lines(entries):
-    """Bold brands with their count, most lists first; single-list brands; then the projector makers."""
+    """The brand block: a grid of the TOP brands, then the rest in a <details>.
+
+    Grid cells are "[Brand](search link) · lists", most lists first, alphabetical within a count, COLUMNS to
+    a row. Under it the remaining brands keep the old line format: bold brands with their count, single-list
+    brands, then the projector makers (a brand whose every TV says "projector")."""
     by = brands(entries)
     projectors = sorted((b for b, tvs in by.items() if all("projector" in t.lower() for t in tvs)),
                         key=str.casefold)
     tv = {b: len(tvs) for b, tvs in by.items() if b not in projectors}
-    bold = sorted((b for b, n in tv.items() if n > 1), key=lambda b: (-tv[b], b.casefold()))
-    plain = sorted((b for b, n in tv.items() if n == 1), key=str.casefold)
-    out = wrap([f"**{b}** {tv[b]}" for b in bold]) + wrap(plain)
-    if projectors:
-        names = ", ".join(projectors[:-1]) + " and " + projectors[-1] if len(projectors) > 1 else projectors[0]
-        out.append(names + " projectors")
+    ranked = sorted(tv, key=lambda b: (-tv[b], b.casefold()))
+    top, rest = ranked[:TOP], ranked[TOP:]
+    out = []
+    if top:
+        cells = [f"[{b}]({SEARCH}{quote(b, safe='')}) · {tv[b]}" for b in top]
+        cells += [""] * (-len(cells) % COLUMNS)
+        out += ["|" + " |" * COLUMNS, "|" + "---|" * COLUMNS]
+        out += ["| " + " | ".join(cells[i:i + COLUMNS]) + " |" for i in range(0, len(cells), COLUMNS)]
+    if rest or projectors:
+        more = ([f"{len(rest)} more brands"] if rest else []) + \
+               ([f"{len(projectors)} projector brands"] if projectors else [])
+        bold = [b for b in rest if tv[b] > 1]
+        plain = sorted((b for b in rest if tv[b] == 1), key=str.casefold)
+        lines = wrap([f"**{b}** {tv[b]}" for b in bold]) + wrap(plain)
+        if projectors:
+            names = ", ".join(projectors[:-1]) + " and " + projectors[-1] if len(projectors) > 1 else projectors[0]
+            lines.append(names + " projectors")
+        out += (([""] if out else []) + ["<details>", f"<summary>+{' and '.join(more)}</summary>", ""]
+                + lines + ["", "</details>"])
     return out
 
 
 def languages(root):
     """English plus every translated strings.xml of the launcher."""
     return len(list((root / "launcher/app/src/main/res").glob("values-*/strings.xml"))) + 1
+
+
+def has_markers(text, name):
+    return any(l.startswith(f"<!-- {name}:start") for l in text.split("\n"))
 
 
 def between(text, name, body, path):
@@ -172,11 +231,36 @@ def between(text, name, body, path):
     return "\n".join(lines[:start[0] + 1] + [""] + body + [""] + lines[end[0]:])
 
 
-def counts(text, entries, root):
+def word_for(word, n):
+    """The form of a count word that goes after n. A word is one string, or (one, few, many) for a
+    language that changes the noun with the number, East Slavic style: 1, 21, 31 take the first form,
+    2-4, 22-24 the second, everything else (11-14 too) the third. README.uk.md said "387 модель
+    телевізорів · 103 брендів" with one fixed form; it is "387 моделей телевізорів · 103 бренди"."""
+    if isinstance(word, str):
+        return word
+    one, few, many = word
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+def word_pattern(word):
+    """A regex for any form of a count word, the longest first so a form is not cut short by a shorter one."""
+    forms = [word] if isinstance(word, str) else sorted(set(word), key=len, reverse=True)
+    return "(?:" + "|".join(re.escape(f) for f in forms) + ")"
+
+
+def counts(text, entries, root, words=WORDS):
+    """The three numbers a page states, in that page's own words: the card's alt text and the row."""
     n, b, l = len(entries), len(brands(entries)), languages(root)
-    text = re.sub(r"\b\d+ TV models · \d+ brands · \d+ languages · ",
-                  f"{n} TV models · {b} brands · {l} languages · ", text)
-    return re.sub(r"^\| \*\*\d+ languages\*\* \|", f"| **{l} languages** |", text, flags=re.M)
+    models, brand_word, language_word = words
+    text = re.sub(rf"\b\d+ {word_pattern(models)} · \d+ {word_pattern(brand_word)} · \d+ {word_pattern(language_word)} · ",
+                  f"{n} {word_for(models, n)} · {b} {word_for(brand_word, b)} · {l} {word_for(language_word, l)} · ",
+                  text)
+    return re.sub(rf"^(\| \*\*)\d+ {word_pattern(language_word)}(\*\* \|)",
+                  rf"\g<1>{l} {word_for(language_word, l)}\g<2>", text, flags=re.M)
 
 
 def stats(text, entries, root):
@@ -187,20 +271,44 @@ def stats(text, entries, root):
 
 
 OWNED = ("README.md", "examples/README.md", "tools/readme_stats.py")
+# The translated READMEs that carry the brand block too, written when the file is there - and the three
+# words each of them states its counts in, for the card's alt text ("345 TV models · 93 brands · 29
+# languages · ") and the "| **29 languages** |" row. The brand block is generated, so those numbers have
+# to move with it: README.nl.md was added to this script as it stood and said "316 tv-modellen · 89
+# merken · 28 talen" over a grid built from 345 lists in 93 brands, because counts() only knew the
+# English words. A page listed here without its words would drift the same way, so
+# tests/test_gen_tables_translated_counts.py reads them - and holds every page that carries the markers to
+# being written, which is how README.de.md came here: it copied the block by hand when the German page
+# landed, so its grid said "Xiaomi · 32" and "+49 more brands" over 97 brands while README.md said 34 and
+# +53, and no run moved it.
+TRANSLATIONS = {"README.nl.md": ("tv-modellen", "merken", "talen"),
+                "README.de.md": ("TV-Modelle", "Marken", "Sprachen"),
+                "README.uk.md": (("модель телевізорів", "моделі телевізорів", "моделей телевізорів"),
+                                 ("бренд", "бренди", "брендів"), ("мова", "мови", "мов")),
+                "README.tr.md": ("TV modeli", "marka", "dil")}
+
+
+def readme(text, entries, root, path, words=WORDS):
+    """A README with its brand block (required), its short TV table (only if it has the markers) and counts."""
+    text = between(text, "tv-brands", brand_lines(entries), path)
+    if has_markers(text, "tv-table"):
+        text = between(text, "tv-table", readme_rows(entries), path)
+    return counts(text, entries, root, words)
 
 
 def render(root, texts=None):
-    """{relative path: the text it should have}, for the three files this script owns parts of.
+    """{relative path: the text it should have}, for the files this script owns parts of.
 
     texts, if given, stands in for what those files hold now (by the same paths)."""
     entries = load(root)
-    now = {p: (texts or {}).get(p) or (root / p).read_text(encoding="utf-8") for p in OWNED}
-    readme = between(now["README.md"], "tv-brands", brand_lines(entries), "README.md")
-    readme = between(readme, "tv-table", readme_rows(entries), "README.md")
-    readme = counts(readme, entries, root)
-    examples = between(now["examples/README.md"], "tv-table", examples_rows(entries), "examples/README.md")
-    stats_py = stats(now["tools/readme_stats.py"], entries, root)
-    return {"README.md": readme, "examples/README.md": examples, "tools/readme_stats.py": stats_py}
+    paths = list(OWNED) + [p for p in TRANSLATIONS if (texts or {}).get(p) or (root / p).is_file()]
+    now = {p: (texts or {}).get(p) or (root / p).read_text(encoding="utf-8") for p in paths}
+    out = {p: readme(now[p], entries, root, p, TRANSLATIONS.get(p, WORDS))
+           for p in ["README.md"] + paths[len(OWNED):]}
+    out["examples/README.md"] = between(now["examples/README.md"], "tv-table", examples_rows(entries),
+                                        "examples/README.md")
+    out["tools/readme_stats.py"] = stats(now["tools/readme_stats.py"], entries, root)
+    return out
 
 
 def stale(root):
@@ -226,8 +334,64 @@ def guess_brand(folder, tv, known):
     return re.split(r"[\s,(]", tv)[0]
 
 
-def write_json(path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+def publish(root, pages):
+    """Replace every (name relative to root, text) in `pages` as one set, or leave all of them as they were.
+
+    Path.write_text() opens the file before it writes, so a page it cannot finish - a full disk, a
+    read-only checkout, a file another process holds open - is left cut short under the name the
+    repository ships it at. On README.md that is the front page cut to whatever the write got to, a
+    traceback and exit 1, the code --check keeps for "the tables are out of date"; the page then has to
+    be restored from git before the run can even be read. A write that stopped halfway through the set
+    was the other half of it: the pages before it held the new counts, the ones after it the old ones,
+    so a --check answer was about a tree no single run wrote.
+
+    So each page is written beside itself first and the pages are replaced only once all of them are
+    written: a run that cannot finish leaves the checkout byte for byte as it was and names the page that
+    stopped it. A page that is a symlink keeps its link (the file it points at is replaced, as
+    write_text did through it), an existing page keeps its mode, and a fresh one gets what write_text
+    would have left it (0666 less the umask, which open() applies to the staging file).
+    """
+    staged, folders, name = [], [], None
+    try:
+        for name, text in pages:
+            target = Path(os.path.realpath(root / name))
+            if target.exists():
+                # Rename can replace a read-only file; check write access without truncating it.
+                os.close(os.open(target, os.O_WRONLY))
+            folder = Path(tempfile.mkdtemp(prefix="." + target.name + "-", dir=target.parent))
+            folders.append(folder)
+            pending = folder / target.name
+            pending.write_text(text, encoding="utf-8")
+            if target.exists():
+                shutil.copymode(target, pending)
+            staged.append((name, pending, target))
+    except OSError as e:
+        for folder in folders:
+            shutil.rmtree(folder, ignore_errors=True)
+        raise Problem(f"cannot write {name}: {e.strerror or e}. Nothing was written: every page this "
+                      f"run had to write keeps the text it had, so --check still answers for the tree "
+                      f"that is there.")
+    written = []
+    try:
+        for name, pending, target in staged:
+            os.replace(pending, target)
+            written.append(name)
+    except OSError as e:
+        # Almost unreachable (the staging folder is beside the page, so a folder that refuses the
+        # rename refused the staging file first), but the message must not claim the checkout is
+        # untouched once some of it is not.
+        raise Problem(f"cannot write {name}: {e.strerror or e}. These pages are written: "
+                      f"{', '.join(written) or 'none'}; these are not: "
+                      f"{', '.join(n for n, _, _ in staged[len(written):])}. Run it again once that is fixed.")
+    finally:
+        for folder in folders:
+            shutil.rmtree(folder, ignore_errors=True)
+    return written
+
+
+def write_json(root, name, data):
+    """`examples/<name>/tv.json`, published by rename: a write that stops leaves the file it was."""
+    publish(root, [(name, json.dumps(data, indent=2, ensure_ascii=False) + "\n")])
 
 
 def adopt(root, patch_text):
@@ -237,20 +401,46 @@ def adopt(root, patch_text):
     and notes, a README row with the same TV gives readme_os when its OS differs. A folder with no tv.json
     gets one. A folder that has one (a PR that edited its row) takes the new tv, os and notes only if the
     row the PR removed is what its tv.json still says; if main has changed the row since, nothing is
-    written for it and Problem is raised once the rest are done. Returns [(folder, what happened)]."""
+    written for that folder and Problem is raised once the rest are done. Returns [(folder, what happened)].
+
+    The tv.json files already in the checkout are read through load(), so one this script cannot use is
+    named in the words --check names it and Problem is raised before the first write. A row main has moved
+    on is the other way it stops, and it stops late: what it could apply is written first, and the message
+    lists those files as written rather than as part of the complaint (the module's exit-2 line says what
+    that leaves in the checkout: the tables are not regenerated, so the row is fixed by hand and the
+    script run again). Calling the patch all-or-nothing, as this docstring once did, was the reader being
+    told a failed run left nothing behind - tests/test_gen_tables.py's
+    test_a_row_main_has_changed_since_is_not_overwritten pins what it really leaves.
+    """
     lines = patch_text.split("\n")
     added = [l[1:] if l.startswith("+") else l for l in lines if not l.startswith(("-", " "))]
     removed = [l[1:] for l in lines if l.startswith("-")]
     rows = {m.group(1): m.groups()[1:] for m in map(EXAMPLES_ROW.match, added) if m}
     before = {m.group(1): m.groups()[1:] for m in map(EXAMPLES_ROW.match, removed) if m}
     readme_os = {m.group(1): m.group(2) for m in map(README_ROW.match, added) if m}
-    have = {}
-    for folder in folders(root):
-        path = folder / "tv.json"
-        if path.is_file():
-            have[folder.name] = json.loads(path.read_text(encoding="utf-8"))
+    # Every file that is there, judged the way the tables are built from it. Reading them with a bare
+    # json.loads made a trailing comma a JSONDecodeError traceback and a list at the root an
+    # AttributeError, both exit 1 - the code --check keeps for "the tables are out of date" - and a
+    # tv.json load() refuses was only found by the render step that follows, after this had written the
+    # patch's new folders: the run then said nothing was written when some of it was.
+    have = dict(load(root, allow_missing=True))
     known = sorted({d.get("brand", "") for d in have.values()} - {""})
     out, stale_rows = [], []
+
+    def wrote():
+        """The lines saying which tv.json files this run has written: nothing may read as 'nothing happened'."""
+        written = [f"examples/{n}/tv.json: {what}" for n, what in out]
+        return (["These tv.json files are written and stay written:"] + written) if written \
+            else ["No tv.json was written."]
+
+    def save(name, data):
+        """write_json, or stop: the message says which file failed and what the run left behind."""
+        try:
+            write_json(root, f"examples/{name}/tv.json", data)
+        except Problem as e:
+            raise Problem("\n".join([str(e)] + wrote() + ["The tables were not regenerated, so a later "
+                                                          "--check still answers for them."]))
+
     for name, (tv, os_cell, notes) in sorted(rows.items()):
         folder = root / "examples" / name
         if not folder.is_dir():
@@ -263,18 +453,107 @@ def adopt(root, patch_text):
                 stale_rows.append(f"examples/{name}/tv.json: the row this PR edits has changed on main since; "
                                   f"move the PR's change into tv.json by hand")
                 continue
-            write_json(folder / "tv.json", dict(have[name], tv=tv, os=os_cell, notes=notes))
+            save(name, dict(have[name], tv=tv, os=os_cell, notes=notes))
             out.append((name, "updated tv, os and notes from the PR's row"))
             continue
         brand = guess_brand(name, tv, known)
         data = {"tv": tv, "os": os_cell, "brand": brand, "notes": notes}
         if readme_os.get(tv, os_cell) != os_cell:
             data["readme_os"] = readme_os[tv]
-        write_json(folder / "tv.json", data)
+        save(name, data)
         out.append((name, f"new, brand {brand}" + ("" if brand in known else " (a new brand: check the spelling)")))
     if stale_rows:
-        raise Problem("\n".join([f"examples/{n}/tv.json: {what}" for n, what in out] + stale_rows))
+        # The files this run did write are said as written, above the rows it did not apply: a maintainer
+        # who reads the whole block as "nothing happened" leaves those tv.json files uncommitted, or
+        # commits them beside tables that were never regenerated - and the next --check run is the one
+        # that says so.
+        head = wrote()
+        raise Problem("\n".join(head + ["These rows were not applied:"] + stale_rows + [
+            "The tables were not regenerated, so README.md and examples/README.md still hold the rows they "
+            "had" + (" and this checkout now answers --check with 1" if out else "") + ". Move that row's change into its tv.json by "
+            "hand, then run python3 tools/gen_tables.py again."]))
     return out
+
+
+def read_inputs(root, patch):
+    """(the patch's text or None, the reason this run cannot start or None).
+
+    Nothing is read or written when this returns a reason. Exit 1 is the code main's "README tables" job
+    reads as "the tables are out of date", so a path this script cannot read must not come back as 1: a
+    `--root` that is not a checkout (a typo, a worktree that was removed) and an `--adopt` patch that is
+    not there both ended in a FileNotFoundError traceback before, which is exit 1 - the one answer that
+    says the generated files are stale when in fact nothing was read at all.
+    """
+    if not root.is_dir():
+        return None, f"--root '{root}': not a folder. Nothing was read or written."
+    # examples/ is what it reads; the three OWNED files are the parts of the checkout it writes.
+    needs = ["examples"] + list(OWNED)
+    missing = [f"{n}/" if n == "examples" else n for n in needs if not (root / n).exists()]
+    if missing:
+        return None, (f"--root '{root}': no {', no '.join(missing)} in it. Point --root at a checkout of this "
+                      f"repository: nothing was read or written.")
+    if patch is None:
+        return None, None
+    try:
+        data = Path(patch).read_bytes()
+        # PowerShell 5.1 redirection writes UTF-16; its BOM identifies the byte order.
+        encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+        return data.decode(encoding).replace("\r\n", "\n").replace("\r", "\n"), None
+    except OSError as e:
+        # A path that is a directory is OSError too (IsADirectoryError), so this covers a patch folder.
+        # The path is quoted so an empty --adopt ('' or a stray pair of quotes) is visible in the line.
+        return None, f"--adopt: cannot read '{patch}': {e.strerror}. Nothing was written."
+    except UnicodeDecodeError:
+        return None, f"--adopt: '{patch}' is not UTF-8 or UTF-16 text. Nothing was written."
+
+
+def card_python(root):
+    """The interpreter the two card scripts are run with, as a path: the checkout's venv when it has Pillow.
+
+    The scripts need Pillow, and requirements.txt has none: docs/workflows/press.md installs
+    requirements-perf.txt into tools/venv, which is the interpreter both scripts' own usage lines name
+    (`tools/venv/bin/python -I tools/readme_stats.py ...`). sys.executable is whatever ran this script, and
+    the run this script asks for in its own messages - and CI's, and docs/workflows/tv-list.md's - is
+    `python3 tools/gen_tables.py`, i.e. the system Python: on a stock Ubuntu 24.04 that is
+    /usr/bin/python3, which has no Pillow and cannot pip install one (PEP 668, EXTERNALLY-MANAGED). So a
+    maintainer who installed Pillow exactly as PRESS.md says, and ran the command this script prints, got
+    "docs/stats.png was not redrawn ... python3 tools/readme_stats.py" twice over, with a venv that could
+    have drawn it sitting beside the list. A checkout with no venv - a contributor's own virtualenv, CI's
+    setup-python - keeps sys.executable, which is how every existing run works.
+    """
+    venv = root / "tools" / "venv" / "bin" / "python"
+    if venv.is_file() and os.access(venv, os.X_OK):
+        # `-I` so a PYTHON* variable in the caller's shell cannot shadow the venv's own site-packages.
+        probe = subprocess.run([str(venv), "-I", "-c", "import PIL"], capture_output=True)
+        if probe.returncode == 0:
+            return str(venv)
+    return sys.executable
+
+
+def redraw(root, font):
+    """Draw docs/stats.png then docs/card.jpg through the two card scripts; a line saying what stopped, or None.
+
+    This is the one place the script starts two other programs, and each of them answers a font that is not
+    Fredoka's variable TTF - the Google Fonts zip renamed, a static single-weight file beside it - or a venv
+    without Pillow (requirements.txt has none; docs/workflows/press.md installs requirements-perf.txt) with
+    its own line and exit 1. With check=True that line was then followed by a CalledProcessError traceback
+    that named the font path as a command, after the tables had already been rewritten: a run that read like
+    "nothing was drawn" had changed two files, and the pictures it promised were not there.
+
+    The interpreter is card_python()'s - the checkout's venv when it has Pillow, else this one - and the
+    remedy names it, since a `python3` that lacks Pillow answers the retry with the same line: the command
+    the reader copies has to be one that can draw.
+    """
+    python = card_python(root)
+    shown = os.path.relpath(python, root) if python != sys.executable else python
+    for script, out in (("tools/readme_stats.py", "docs/stats.png"),
+                        ("tools/readme_card.py", "docs/card.jpg")):
+        done = subprocess.run([python, script, font, out], cwd=root)
+        if done.returncode:
+            return (f"{out} was not redrawn: {script} exited {done.returncode} and its line above says why. "
+                    f"The tables are written; redraw the picture once that is fixed, with "
+                    f"{shown} {script} <Fredoka.ttf> {out}, and commit it with the tables.")
+    return None
 
 
 def main(argv=None):
@@ -285,14 +564,20 @@ def main(argv=None):
                                    "docs/stats.png and docs/card.jpg when a count changed")
     ap.add_argument("--adopt", metavar="PATCH", help="write missing tv.json files from the rows in PATCH first")
     a = ap.parse_args(argv)
+    if a.check and a.adopt is not None:
+        ap.error("--check and --adopt cannot be used together")
     if a.font and not Path(a.font).is_file():
         # The scripts this hands the font to exit with their own line, but subprocess.run(check=True) would
         # then turn that into a CalledProcessError traceback, which names neither the file nor where it is.
         ap.error(f"cannot open the font at {a.font}: Fredoka (variable TTF, Google Fonts) is not in this repo")
     root = Path(a.root)
+    patch, problem = read_inputs(root, a.adopt)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 2
     try:
         if a.adopt:
-            for name, what in adopt(root, Path(a.adopt).read_text(encoding="utf-8")):
+            for name, what in adopt(root, patch):
                 print(f"examples/{name}/tv.json: {what}")
         if a.check:
             out = stale(root)
@@ -301,18 +586,20 @@ def main(argv=None):
                       f"a maintainer runs python3 tools/gen_tables.py after merging and commits the result.")
                 return 1
             return 0
-        changed = []
-        for path, text in render(root).items():
-            if (root / path).read_text(encoding="utf-8") != text:
-                (root / path).write_text(text, encoding="utf-8")
-                changed.append(path)
+        pages = [(path, text) for path, text in render(root).items()
+                 if (root / path).read_text(encoding="utf-8") != text]
+        changed = publish(root, pages)
     except Problem as e:
         print(e, file=sys.stderr)
         return 2
     if "tools/readme_stats.py" in changed:
         if a.font:
-            for script, out in (("tools/readme_stats.py", "docs/stats.png"), ("tools/readme_card.py", "docs/card.jpg")):
-                subprocess.run([sys.executable, script, a.font, out], cwd=root, check=True)
+            # The font was checked from where this runs; the scripts run in the checkout, so hand them the full path.
+            font = str(Path(a.font).resolve())
+            stopped = redraw(root, font)
+            if stopped:
+                print(stopped, file=sys.stderr)
+                return 1
             changed += ["docs/stats.png", "docs/card.jpg"]
         else:
             print("A count changed: redraw docs/stats.png and docs/card.jpg (--font Fredoka.ttf, or "

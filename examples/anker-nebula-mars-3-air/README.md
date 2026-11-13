@@ -12,7 +12,7 @@ address (Settings > Network on the projector).
 | | |
 |---|---|
 | **Disabled** (15 packages, never uninstalled) | Google feedback and consent, Privacy Sandbox ad services, federated learning, on-device personalisation, partner attribution, both retail-demo apps, the AirPlay receiver, Spotify, Max, the Google TV movies app, the setup wizard, the stock Google TV home and its partner rows. The full list with reasons is in [`debloat.txt`](debloat.txt) |
-| **Back after every boot** | The firmware turns `com.google.android.katniss` (Assistant) back on at each boot. The owner keeps it on, so the mic button works; `tools/check.py --fix` re-disables it if you prefer |
+| **Back after every boot** | The firmware turns `com.google.android.katniss` (Assistant) back on at each boot. The owner keeps it on, so the mic button works. To keep it off instead, uncomment `com.google.android.katniss` and `com.google.android.tv.assistant` in [`debloat.txt`](debloat.txt) and run `tools/disable.sh` on it again, which records them first so [Undo everything](#undo-everything) brings them back; after each boot, `tools/venv/bin/python -I tools/check.py --fix` re-disables what came back |
 | **Kept** | Chromecast built-in, Prime Video, YouTube + YouTube Music, Play Games, Nebula Play, Nebula Life, Netflix (see quirks), Google's Ambient Mode screensaver, and everything the projector needs: focus / keystone / battery settings, remote, Bluetooth pairing, HDMI inputs, USB media player, Dolby audio, keyboard, Play Store, firmware-update UI |
 | **Screensaver** | Google Ambient Mode: disabled at first with the screensaver switched to the built-in "Colors", then re-enabled on request and made the active screensaver again |
 | **Home** | `com.gathin.tvhome`, configured by [`config.json`](config.json): six-column dock (YouTube, Twitch, Netflix, Prime Video, Vodafone TV, VLC), the app library and the gear menu |
@@ -28,8 +28,14 @@ address (Settings > Network on the projector).
    to `android.uid.system` and kept working after the disable. Re-enable it (restore.sh does)
    before a factory reset. Phone casting kept working here too. On other Google TV units the Cast receiver
    loses its credentials with setupwraith gone and phone casting fails with "Untrusted device"
-   ([docs/TROUBLESHOOTING.md](../../docs/TROUBLESHOOTING.md)) — re-enable setupwraith if your
-   phone refuses to cast.
+   ([docs/TROUBLESHOOTING.md](../../docs/TROUBLESHOOTING.md)) — re-enable setupwraith if your phone
+   refuses to cast, with launcherx enabled first (`pm enable com.google.android.apps.tv.launcherx`). With
+   launcherx off, Home has no other claimant and setupwraith's `.RecoveryActivity` takes it — the
+   behaviour quirk 1 above describes — and on a Xiaomi MiTV-MOEU0 (`V816.0.26.10.12.1`) a reboot in that
+   state never left the boot animation and only a factory reset brought the TV back
+   ([#3578](https://github.com/Gathin23/cleanyourtv/issues/3578)). `cmd package set-home-activity` did not
+   move Home off `.RecoveryActivity` with the wizard on, so order matters rather than the command. Disable
+   setupwraith and launcherx again once casting works, one package per call.
 2. **The firmware re-enables Assistant at every boot.** `com.google.android.katniss` comes back
    enabled after each reboot, and its LED service with it (the same behaviour as the
    [D2426 Capsule](../anker-nebula-d2426/) list). The owner keeps it on so the mic button works.

@@ -82,7 +82,7 @@ final class XmbCloser {
      */
     static boolean close(Context ctx, List<XmbRunning.App> apps, List<String> titles, android.graphics.Bitmap backdrop,
                          Listener listener) {
-        InputKeyService svc = InputKeyService.instance;
+        InputKeyService svc = InputKeyService.running;
         Texts t = texts(ctx);
         if (svc == null || t == null || current != null || apps.isEmpty()) return false;
         current = new XmbCloser(svc, t, apps, titles, backdrop, listener);

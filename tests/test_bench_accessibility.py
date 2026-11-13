@@ -17,6 +17,7 @@ Run from the repository root:
     python -m unittest tests.test_bench_accessibility -v
 """
 import unittest
+from unittest import mock
 
 from tools import bench
 
@@ -31,7 +32,7 @@ class FakeTV:
         self.setting = setting
         self.commands = []
 
-    def shell(self, command, read_timeout_s=None):
+    def shell(self, command, read_timeout_s=None, *, retry=False):
         self.commands.append(command)
         if command.startswith("settings get secure enabled_accessibility_services"):
             return self.setting
@@ -81,27 +82,24 @@ class ColdStartOrderTest(unittest.TestCase):
         order = []
 
         original_shell = tv.shell
-        def spy(command, read_timeout_s=None):
+        def spy(command, read_timeout_s=None, *, retry=False):
             if command.startswith("settings put secure enabled_accessibility_services"):
                 order.append("restore")
             elif command.startswith("am start -W ") and command.endswith("-n com.gathin.tvhome/.MainActivity"):
                 order.append("measure")
-            return original_shell(command, read_timeout_s)
+            return original_shell(command, read_timeout_s, retry=retry)
         tv.shell = spy
 
         # `am start -W` has to answer something with a WaitTime.
-        def shell_with_start(command, read_timeout_s=None):
-            out = spy(command, read_timeout_s)
+        def shell_with_start(command, read_timeout_s=None, *, retry=False):
+            out = spy(command, read_timeout_s, retry=retry)
             if command.startswith("am start -W"):
                 return "WaitTime: 420"
             return out
         tv.shell = shell_with_start
 
-        bench.other_app = lambda _tv: "com.android.tv.settings/.MainSettings"
-        try:
+        with mock.patch.object(bench, "other_app", lambda _tv: "com.android.tv.settings/.MainSettings"):
             bench.cold_start(tv, "com.gathin.tvhome/.MainActivity", 1)
-        finally:
-            pass
 
         self.assertIn("measure", order, order)
         self.assertIn("restore", order, order)

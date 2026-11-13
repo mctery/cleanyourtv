@@ -37,6 +37,19 @@ class ManageTest(unittest.TestCase):
         self.assertIn("dock_apps", keys)
         self.assertGreater(len(keys), 40)
 
+    def test_an_application_id_that_is_not_a_package_name_is_not_used(self):
+        # `manage.py remove` sends `pm uninstall <id>` to the TV's shell, so an id carrying shell words
+        # must read as no package at all rather than run on the TV.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "app"
+            app.mkdir()
+            gradle = app / "build.gradle"
+            gradle.write_text("android { defaultConfig { applicationId 'x.y; settings put global adb_enabled 0 #' } }\n")
+            self.assertIsNone(manage.package(Path(tmp)))
+            gradle.write_text("android { defaultConfig { applicationId 'com.example.addon' } }\n")
+            self.assertEqual("com.example.addon", manage.package(Path(tmp)))
+
     def test_find_by_folder_or_name(self):
         self.assertEqual("weather", manage.find("Weather")["id"])
         self.assertEqual("theme", manage.find("aurora/")["kind"])
@@ -60,15 +73,21 @@ class ManageTest(unittest.TestCase):
         return code, out.getvalue()
 
     def test_status_stops_when_the_tv_does_not_answer(self):
-        for answers, message in [
-            ([("", 1, "failed to connect")], "failed to connect"),
-            ([("package:com.a\n", 1, "")], "package:com.a"),
-            ([("", 255, "")], "tv.py exited with status 255"),
-            ([("", 0, ""), ("", 1, "unauthorized")], "unauthorized"),
+        """The exit status is tv.py's - 2 for a TV it never reached, 1 for a command that failed - and the words
+        it printed go to stderr, where a caller reads them."""
+        for answers, code, message in [
+            ([("", 1, "failed to connect")], 1, "failed to connect"),
+            ([("package:com.a\n", 1, "")], 1, "package:com.a"),
+            ([("", 255, "")], 1, "tv.py exited with status 255"),
+            ([("", 0, ""), ("", 1, "unauthorized")], 1, "unauthorized"),
+            ([("", 2, "127.0.0.1:1 refused the connection")], 2, "refused the connection"),
         ]:
-            with self.subTest(message=message), self.assertRaises(SystemExit) as stop:
-                self.status(*answers)
-            self.assertEqual(stop.exception.code, message)
+            with self.subTest(code=code, message=message):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
+                    self.status(*answers)
+                self.assertEqual(stop.exception.code, code)
+                self.assertIn(message, err.getvalue())
 
     def test_status_reads_an_empty_tv(self):
         code, out = self.status(("", 0, ""), ("", 0, ""))

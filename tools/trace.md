@@ -12,7 +12,10 @@ tools/venv/bin/pip install -r tools/requirements-perf.txt
 
 Recording needs only `tools/requirements.txt` and a TV on Android 9 or later. The report's first run
 downloads Perfetto's query engine (about 13 MB, SHA-256 checked) to `~/.local/share/perfetto`. To avoid
-that, download `trace_processor_shell` yourself and pass `--engine PATH`.
+that, download `trace_processor_shell` yourself and pass `--engine PATH`. The path is read before any
+trace is opened, so it has to be a file with its execute bit set: an empty one, a typo, a folder or a
+file you forgot to `chmod +x` is answered with exit 2 and the path named, rather than a traceback out of
+Perfetto that names neither. `tools/flamechart.py` takes the same option and answers the same way.
 
 On Android 9 and 10, the TV's tracing services must be enabled first; they are enabled by default only
 from Android 11. See Perfetto's [tracing-service setup](https://perfetto.dev/docs/quickstart/android-tracing#starting-the-tracing-services)
@@ -25,6 +28,15 @@ It sends a binary trace config, which Android 9 accepts without the `--txt` opti
 TV_HOST=<tv ip> tools/venv/bin/python -I tools/trace.py home --runs 5 --out traces/before
 ```
 
+`--out` is the folder the traces are written into, and it is created if it is not there. A file where the
+folder goes, a path through a file and an empty `--out` are refused before the TV is asked anything.
+
+A TV that cannot be reached stops the run with `tools/tv.py`'s sentence - a port that refuses, a Wireless
+debugging port that asks for TLS, an address nothing answers on, or, before the TV is asked anything at
+all, no `TV_HOST` and a `TV_PORT` that is not a port number - and exit 2, before the folder is made.
+Nothing was recorded, so nothing is half-written: `tools/bench.py`, `tools/check.py` and
+`tools/b64push.py` answer a TV like that the same way.
+
 | Scenario | Recorded | Use for |
 |---|---|---|
 | `home` | HOME pressed while another app is in front | Most Home changes |
@@ -35,7 +47,15 @@ TV_HOST=<tv ip> tools/venv/bin/python -I tools/trace.py home --runs 5 --out trac
 
 - **Output:** each run writes `<scenario>-<n>.pftrace` (10–20 MB) and a `.json` with the commands and the
   TV's model and build. `traces/` is gitignored.
-- **The other app:** `--app package/activity`, or by default the TV's Settings.
+- **The other app:** `--app package/activity`, or by default the TV's Settings. Both this tool and
+  `bench.py` bring an existing instance to the front across runs, rather than stacking new Settings
+  activities. They do not clear the other app's data or force-stop it. Check that it is responsive
+  after a long session; an already accumulated history is not removed by this flag.
+- **The package:** `--package` names the launcher, `com.gathin.tvhome` unless your build has another one
+  (a fork: [SHOWCASE.md](../SHOWCASE.md) lists several). It decides which process the recording follows and
+  which one the report reads, so a fork has to pass it to `trace.py`, `trace_report.py` and
+  `flamechart.py` alike: with the wrong name the report prints `–` for every step instead of saying the
+  package was not in the trace, and the chart stops at `no <package> process in the trace`.
 
 ## Report
 

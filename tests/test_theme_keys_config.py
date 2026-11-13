@@ -3,17 +3,25 @@
 The switch recipe in AGENTS.md asks for a row in that table for every key it adds, because the table
 is what a theme author reads and the launcher itself says nothing: an unknown key is ignored, so a
 reader who sets one the table never names has no way to tell a typo from a key that does not exist.
-`input_sources` is in the table marked "config.xml only", so the table is meant to cover those too -
-and `settings_fallback_components`, the list SystemSettings.java walks when nothing usable answers the
-standard Settings action, was the one entry missing. A reader whose Settings action opens nothing had
-nothing to look up, and the row now says why: the three vendor screens it ships with, the `CTSDummy`
-stub Fire OS resolves the action to, and that a package named here also has to be in the launcher's
-`<queries>`, so a fourth set needs a build rather than a theme push.
+`settings_fallback_components`, the list SystemSettings.java walks when nothing usable answers the
+standard Settings action, is config.xml-only. A reader whose Settings action opens nothing had nothing
+to look up, and the row now says why: the three vendor screens it ships with, the `CTSDummy` stub Fire
+OS resolves the action to, and that a package named here also has to be in the launcher's `<queries>`,
+so a fourth set needs a build rather than a theme push. Input source mappings are also accepted from a
+theme now, so a model-specific example can carry its vendor HDMI route without changing shared defaults.
 
 The check runs one way only, the way the table is written: every key the launcher reads from
 config.xml has a row. It does not ask the table to stop carrying theme-only keys such as `race_calendar`
 or `wallpaper_rotation_minutes`, which no config.xml resource backs - those are the keys a theme sets
 and the table is their only home.
+
+`<integer-array>` is one of the resource forms the launcher reads, and it was the one this file did not:
+the pattern below listed bool, string, integer, string-array, array and color, so a key HomeKeyService or
+InputKeyService reads as `R.array.<name>` was never compared with the table. `settings_key_scancodes`
+(the scancode half of `settings_key_keycodes`, read by HomeKeyService.java) went without a row while its
+sibling had one, on a table whose own line says a theme can point the Settings button at a keycode but
+says nothing about the scan code that a remote which sends none needs. A test below reads the three
+integer-array keys, so dropping the form again fails here instead of leaving a key unlisted.
 
 `latitude` and `longitude` are the two exceptions, with their reason in EXEMPT: they are config.xml
 lines a build sets, docs/sky.md documents them, and tests/test_sky_place_note.py requires the Keys
@@ -40,7 +48,10 @@ SKY_VIEW = JAVA_DIR / "SkyView.java"
 # as `false` or `#RRGGBB` does not.
 KEY = re.compile(r"`([a-z][a-z0-9_]*)`")
 # The resources config.xml defines: name -> type, as the launcher sees them (a string-array is R.array).
-RESOURCE = re.compile(r'<(bool|string|integer|string-array|array|color)\s+name="([a-z][a-z0-9_]*)"')
+# `integer-array` is a form of its own and comes before `integer`, so the longer name is tried first:
+# without it a key read as R.array.<name> never reached the comparison below, which is how
+# settings_key_scancodes stayed without a row.
+RESOURCE = re.compile(r'<(bool|string|integer-array|string-array|integer|array|color)\s+name="([a-z][a-z0-9_]*)"')
 # What the Java side reads: R.bool.x, R.string.x, R.integer.x, R.array.x, R.color.x.
 READ = re.compile(r"R\.(?:bool|string|integer|array|color)\.([a-z][a-z0-9_]*)")
 # A key read from a theme's config.json: string(json, "dock_title", ...) and its siblings.
@@ -151,6 +162,33 @@ class KeysTableCoversConfigXmlTest(unittest.TestCase):
                 self.assertIn(name, read, f"config.xml and the Java side no longer agree on `{name}`")
         self.assertGreaterEqual(len(read), 40, "far fewer keys read from config.xml than before")
 
+    def test_an_integer_array_is_read_as_a_key(self):
+        # The form the pattern above used to skip. These three are `<integer-array>` in config.xml and
+        # every one of them is read by a helper, so a parser that cannot see the form leaves them out of
+        # the comparison entirely - which is how settings_key_scancodes went without a row.
+        config = config_keys(self.config)
+        read = read_from_config(config, self.sources)
+        integer_arrays = {name for name, kind in config.items() if kind == "integer-array"}
+        self.assertGreaterEqual(len(integer_arrays), 3,
+                                "config.xml has fewer integer arrays than it used to: is the parser "
+                                "still reading them?")
+        for name in ("settings_key_scancodes", "settings_key_keycodes", "input_key_keycodes"):
+            with self.subTest(key=name):
+                self.assertIn(name, integer_arrays, f"`{name}` is no longer an integer-array in config.xml")
+                self.assertIn(name, read, f"the launcher reads `{name}` and the parser lost it")
+
+    def test_settings_key_scancodes_has_its_row(self):
+        # The scancode half of settings_key_keycodes: the same buttons, for remotes that send a code
+        # Android maps to no keycode. It is config.xml only, which the row has to say.
+        row = row_for(self.text, "settings_key_scancodes")
+        self.assertTrue(row, "the Keys table has no settings_key_scancodes row")
+        self.assertIn("`config.xml` only", type_cell(row),
+                      "`Config.java` never reads settings_key_scancodes from a theme, so the row has to "
+                      "say it is config.xml only, as settings_fallback_components' does")
+        helper = (JAVA_DIR / "HomeKeyService.java").read_text(encoding="utf-8")
+        self.assertIn("R.array.settings_key_scancodes", helper,
+                      "HomeKeyService.java no longer reads settings_key_scancodes: drop or rewrite its row")
+
     def test_every_key_the_launcher_reads_has_a_row(self):
         missing = missing_rows(self.text, self.config, self.sources)
         for name in missing:
@@ -183,7 +221,7 @@ class KeysTableCoversConfigXmlTest(unittest.TestCase):
         from_theme = set(FROM_THEME.findall(CONFIG_JAVA.read_text(encoding="utf-8")))
         config_only = [key for key, row in table_keys(self.text).items()
                        if "`config.xml` only" in type_cell(row)]
-        self.assertGreaterEqual(len(config_only), 2,
+        self.assertGreaterEqual(len(config_only), 1,
                                 "no row says config.xml only any more: is the wording still the same?")
         for key in config_only:
             with self.subTest(key=key):
